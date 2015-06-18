@@ -18,6 +18,7 @@ library("limma")
 library("MEMA")
 library("data.table")
 
+#Select a staining set
 ss <- "SS3"
 
 ```
