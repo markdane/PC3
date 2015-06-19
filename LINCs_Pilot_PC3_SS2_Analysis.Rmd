@@ -40,10 +40,10 @@ create8WellHistograms <- function(DT, pr, prDisplay, binwidth = diff(quantile(DT
 }
 
 #Set the staining set to be analyzed
-ss <- "SS1"
-cmp <- "Cyto."
-# ss <- "SS2"
-# cmp <- ""
+# ss <- "SS1"
+# cmp <- "Cyto."
+ss <- "SS2"
+cmp <- ""
 
 popDT <- fread(paste0("./",ss,"/Population/Annotated Data/PC3_",ss,"_PopAnn.txt"))
 

@@ -187,6 +187,11 @@ cDT$Ligand <- unlist(regmatches(cDT$LigandAnnotID, ms))
 #Set neighborhood as 4 nuclei radii
 cDT <- cDT[,Density:=spotCellDensities(.SD, radius=160)*10000,by="Barcode,Well,Spot"]
 
+# Eliminate Variations in the Endpoint metadata
+endpointNames <- grep("End",colnames(cDT), value=TRUE)
+endpointWL <- regmatches(endpointNames,regexpr("[[:digit:]]{3}",endpointNames))
+setnames(cDT,endpointNames,paste0("Endpoint",endpointWL))
+
 write.table(cDT, paste0(ss,"/Cell/Annotated Data/",unique(sDT$CellLine),"_",ss,"_","CellAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 #Summarize cell data to spot level (sl) by taking the medians of the parameters
@@ -195,7 +200,7 @@ slKeep<-cDT[,slNames,with=FALSE]
 slDT<-slKeep[,lapply(.SD,numericMedian),keyby="Barcode,Well,Spot"]
 
 #Merge back in the spot and well metadata
-mDT <- cDT[,list(Row,Column,PrintOrder,Depositions,Block,Name,ID,ArrayRow,ArrayColumn,Spot,ShortName,Well,CellLine,Ligand,LigandAnnotID,EndPoint488,EndPoint555,EndPoint647,WellIndex),keyby="Barcode,Well,Spot"]
+mDT <- cDT[,list(Row,Column,PrintOrder,Depositions,Block,Name,ID,ArrayRow,ArrayColumn,Spot,ShortName,Well,CellLine,Ligand,LigandAnnotID,Endpoint488,Endpoint555,Endpoint647,WellIndex),keyby="Barcode,Well,Spot"]
 slDT <- mDT[slDT, mult="first"]
 #TODO: Determine a cleaner way to not duplicate the key columns
 slDT <-slDT[,Well.1:=NULL]
