@@ -1,9 +1,12 @@
+---
+output: pdf_document
+---
 ```{r, echo=FALSE}
 #Set the staining set to be analyzed
-# ss <- "SS1"
-# cmp <- "Cyto."
-ss <- "SS2"
-cmp <- ""
+#  ss <- "SS1"
+#  cmp <- "Cyto."
+ ss <- "SS2"
+ cmp <- ""
 ```
 ---
 title: "MEP-LINCs `r ss` Pilot Analysis"
@@ -46,15 +49,9 @@ create8WellHistograms <- function(DT, pr, prDisplay, binwidth = diff(quantile(DT
     facet_wrap(~Well, ncol=ncol)
 }
 
-#Set the staining set to be analyzed
-# ss <- "SS1"
-# cmp <- "Cyto."
-ss <- "SS2"
-cmp <- ""
-
 popDT <- fread(paste0("./",ss,"/Population/Annotated Data/PC3_",ss,"_PopAnn.txt"))
 
-cDT <- fread(paste0("./",ss,"/Cell/Annotated Data/PC3_",ss,"_CellAnn.txt"))
+cDT <- fread(paste0("./",ss,"/Cell/Annotated Data/PC3_",ss,"_CellAnn.txt"), showProgress = FALSE)
 
 sDT <- fread(paste0("./",ss,"/Cell/Annotated Data/PC3_",ss,"_CellSpotAnn.txt"))
 
@@ -254,8 +251,21 @@ if (ss == "SS1"){
     theme(strip.text = element_text(size = 5), axis.text.x = element_blank(),
           axis.ticks.x = element_blank())
   suppressWarnings(print(p))
-}
+  }
+  
 } else if (ss == "SS2"){
+    for (barcode in unique(cDT$Barcode)){
+  mDT <- cDT[cDT$Barcode == barcode]
+  p <- ggplot(mDT, aes(x=Total.Intensity.DAPI))+geom_bar(binwidth = 50000)+
+  facet_wrap(~Ligand, nrow=2)+
+    xlim(0,quantile(mDT$Total.Intensity.DAPI,probs=.98, na.rm=TRUE))+
+    ggtitle(paste("Total DAPI Signal"))+
+    ylab("Count")+xlab("Total Intensity DAPI")+
+    theme(strip.text = element_text(size = 5), axis.text.x = element_blank(),
+          axis.ticks.x = element_blank())
+  suppressWarnings(print(p))
+    }
+  
 for (barcode in unique(cDT$Barcode)){
   mDT <- cDT[cDT$Barcode == barcode]
   p <- ggplot(mDT, aes_string(x=paste0("Total.Intensity.DAPI"),y=paste0("log2(",cmp,"Mean.Intensity.Alexa.647)"), colour="EdUPositive"))+geom_point(size = .4)+
@@ -289,7 +299,7 @@ cDT <- cDT[!"HighSerum"]
 setkey(cDT,ECMp)
 cDT <- cDT[!"fiducial"]
 
-cDT <- cDT[!cDT$SpotCellCount < 20]
+cDT <- cDT[!cDT$SpotCellCount < 40]
 
 setkey(sDT,Barcode,Well)
 sDT <- merge(sDT,passedQAWells)
@@ -304,14 +314,42 @@ sDT <- sDT[!"HighSerum"]
 
 ##MEP Perimeter Box Plots
 
-```{r Perimeter_Median_differences, echo=FALSE,fig.width=8, fig.height=10, eval=TRUE}
+```{r Perimeter_Median_differences, echo=FALSE,fig.width=8, fig.height=4, eval=TRUE}
 
 calcGroupDiffs <- function(x,group,signal){
   #browser()
   medianInGroup <- median(x[[signal]][x[[group]]], na.rm=TRUE)
   medianOutGroup <- median(x[[signal]][!x[[group]]], na.rm=TRUE)
   return(medianInGroup-medianOutGroup)
-}
+} 
+
+if(ss=="SS1"){
+  
+cDT <- cDT[, MitoPerimeterDifference := calcGroupDiffs(.SD,group="Perimeter",signal="Cyto.Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
+
+cDT <- cDT[, MitoSparseDifference := calcGroupDiffs(.SD,group="Sparse",signal="Cyto.Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
+
+setkey(cDT,MitoPerimeterDifference)
+MEP <- unique(cDT[,list(ECMp,Ligand,MitoPerimeterDifference,MitoSparseDifference,Barcode,Well, ArrayRow,ArrayColumn,SpotCellCount,Cyto.Mean.Intensity.Alexa.647.SpotNorm)])
+
+p <- ggplot(cDT, aes(x=factor(Perimeter), y=log2(Cyto.Mean.Intensity.Alexa.647)))+geom_boxplot(notch=TRUE)+
+      xlab("Perimeter")+ylab(paste(unique(cDT$Endpoint647), "Mean Intensity (log2)"))+
+    ggtitle(paste(unique(cDT$Endpoint647), "Mean Intensity in Interior vs. Perimeter Cells"))
+  suppressWarnings(print(p))
+  
+  p <- ggplot(cDT, aes(x=factor(Sparse), y=log2(Cyto.Mean.Intensity.Alexa.647)))+geom_boxplot(notch=FALSE)+
+    xlab("Sparse")+ylab(paste(unique(cDT$Endpoint647), "Mean Intensity (log2)"))+
+    ggtitle(paste(unique(cDT$Endpoint647), "Mean Intensity in Dense vs. Sparse Cells"))
+  suppressWarnings(print(p))
+  
+  p <- ggplot(cDT, aes_string(x="factor(ECMp)",y=paste0("MitoPerimeterDifference"), colour="Ligand"))+geom_point(size=3)+
+    ggtitle(paste("Perimeter vs Interior Differences in ",unique(cDT$Endpoint647), "Signal by MEP"))+
+    ylab(paste(unique(cDT$Endpoint647),"Perimeter to Interior Difference"))+xlab("")+
+    theme(strip.text = element_text(size = 5), axis.text.x = element_text(angle = 90),
+          axis.ticks.x = element_blank())
+  suppressWarnings(print(p))
+  
+} else if (ss=="SS2"){
 
 cDT <- cDT[, EdUPerimeterDifference := calcGroupDiffs(.SD,group="Perimeter",signal="Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
 
@@ -320,9 +358,11 @@ cDT <- cDT[, EdUSparseDifference := calcGroupDiffs(.SD,group="Sparse",signal="Me
 setkey(cDT,EdUPerimeterDifference)
 MEP <- unique(cDT[,list(ECMp,Ligand,EdUPerimeterDifference,EdUSparseDifference,Barcode,Well, ArrayRow,ArrayColumn,SpotCellCount,EdUPositivePercent)])
 
-p <- ggplot(cDT, aes(x=factor(Perimeter), y=EdUPositive))+geom_boxplot(notch=TRUE)+ylim(0,1)
+p <- ggplot(cDT, aes(x=factor(Perimeter), y=log2(Mean.Intensity.Alexa.647.SpotNorm)))+geom_boxplot(notch=FALSE)+ylim(0,1)
   suppressWarnings(print(p))
-
+} else if(ss == "SS3"){
+  
+} else stop(paste(ss, "is an invlalid value for the ss staining set parameter"))
 ```
 
 ```{r EdU_Perimeter_1st, echo=FALSE,fig.width=8, fig.height=11, eval=FALSE}

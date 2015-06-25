@@ -12,6 +12,8 @@ with the well (xlsx) and log (XML) data from the ./Metadata folder.
 
 This merging assumes that the actual, physical B row wells (B01-B04) have been printed upside-down. That is, rotated 180 degrees resulting in the spot 1,1 being in the lower right corner instead of the upper left corner. The metadata is matched to the actual printed orientation.
 
+The data is filtered to remove objects with area less than 1000 pixels.
+
 In addition to merging the metadata with the cell-level data, several types of derived parameters are added. These include:
 
 Cell Density based on the number of nuclear centers within a radius around each nucleus.
@@ -65,8 +67,67 @@ spotCellDensities <- function(spot,radius=(max(spot$X)-min(spot$X))/5) {
   }
   
   
+#Function from Roland on Stack Overflow
+#http://stackoverflow.com/questions/23018056/convert-cartesian-angles-to-polar-compass-cardinal-angles-in-r
+ang <- function(x,y) { 
+  z <- x + 1i * y
+  res <- 90 - Arg(z) / pi * 180
+  res %% 360
+}
+
+findPerimeterCell <- function(x){
+  #browser()
+  if(!nrow(x)==0){
+  perimeterLogicals <- vector(length=nrow(x))
+  perimeterLogicals[which.max(x$RadialPosition)] <- TRUE
+  }
+  return(perimeterLogicals)
+}
+
+labelOuterCells <- function(x, thresh=.75){
+  #browser()
+  outerLogicals <- NULL
+  if(!length(x)==0){
+  outerLogicals <- x>quantile(x,probs = thresh, na.rm=TRUE)
+  }
+  return(outerLogicals)
+}
+
+
+kmeansCluster <- function (x, centers = 2) 
+{
+  #browser()
+  x <- data.frame(x)
+    xkmeans <- kmeans(x, centers = centers)
+    if(centers==2){
+      if(xkmeans$centers[1] > xkmeans$centers[2]){
+        tmp <- xkmeans$cluster == 1
+        xkmeans$cluster[xkmeans$cluster == 2] <- 1L
+        xkmeans$cluster[tmp] <- 2L
+      }
+    }
+    return(xkmeans[["cluster"]])
+}
+
+  
+  kmeansClusterEdUPositive <- function(x,value){
+    highSerumEdUPos <- kmeansCluster(log2(x[[value]][x$Ligand=="HighSerum"]))
+    edUPositiveThresh <- min(x[[value]][x$Ligand=="HighSerum"][highSerumEdUPos==2])
+    clusters <- rep.int(1,nrow(x))
+    clusters[x[[value]]>edUPositiveThresh] <- 2
+    return(clusters)
+  }
+  
+  fixedThreshEdUPositive <- function(x,value,thresh){
+    clusters <- rep.int(1,nrow(x))
+    clusters[x[[value]]>thresh] <- 2
+    return(clusters)
+  }
+  
 #Select a staining set
 ss <- "SS1"
+densityThresh <- 0.4
+outerThresh <- 0.5
 
 ```
 
@@ -91,7 +152,7 @@ BRowMetadata <- data.table(spotMetadata180,Well=rep(c("B01", "B02","B03","B04"),
 ```
 
 
-```{r ScanR merge, normalize and QA, echo=FALSE, message=FALSE, warnings=FALSE}
+```{r ScanR merge_normalize and QA, echo=FALSE, message=FALSE, warnings=FALSE}
 #The next steps are to bring in the well metadata, the print order and the ScanR data
 
 cellDataFiles <- dir(paste0(ss,"/Cell/Raw Data"),full.names = TRUE)
@@ -168,13 +229,17 @@ expDTList <- lapply(barcodes, function(barcode){
 
   
   #Filter out debris based on nuclear area
-  nuclearAreaThresh <- 425
+  nuclearAreaThresh <- 1000
   pcDT <- pcDT[pcDT$Area >nuclearAreaThresh,]
   
   return(pcDT)
 })
 
 cDT <- rbindlist(expDTList, fill = TRUE)
+
+```
+
+```{r, echo=FALSE, message=FALSE, warnings=FALSE}
 cDT$Total.Intensity.DAPI <- cDT$Area*cDT$Mean.Intensity.DAPI
 
 #Create a display name for the ligands
@@ -182,15 +247,95 @@ setnames(cDT,"Ligand","LigandAnnotID")
 ms <- gregexpr("^[[:alnum:]]*[^_]", cDT$LigandAnnotID)
 cDT$Ligand <- unlist(regmatches(cDT$LigandAnnotID, ms))
 
+#Create a display name for the ECM Proteins
+cDT$ECMpAnnotID <- cDT$Name
+ms <- gregexpr("^[[:alnum:]]*[^_]", cDT$ECMpAnnotID)
+cDT$ECMp <- unlist(regmatches(cDT$ECMpAnnotID, ms))
+
 #Add the cell density
 #Average nuclear radius is 40 so touching nuclei are 80 apart
 #Set neighborhood as 4 nuclei radii
 cDT <- cDT[,Density:=spotCellDensities(.SD, radius=160)*10000,by="Barcode,Well,Spot"]
 
+#Add local cartesian and polar coordinates to each cell
+cDT <- cDT[,XLocal := X-median(X), by="Barcode,Well,Spot"]
+cDT <- cDT[,YLocal := Y-median(Y), by="Barcode,Well,Spot"]
+cDT <- cDT[,RadialPosition := sqrt(XLocal^2+YLocal^2)]
+cDT <- cDT[,Theta := ang(XLocal,YLocal)]
+
+cDT <- cDT[,Sparse := Density < densityThresh]
+
+#Add a local wedge ID to each cell based on conversations with Michel Nederlof
+wedgeAngs <- 20
+cDT <- cDT[,Wedge:=ceiling(Theta/wedgeAngs)]
+
+#Define the perimeter cell if it exists in each wedge
+#Classify cells as outer if they have a radial position greater than a thresh
+
+cDT <- cDT[,OuterCell := labelOuterCells(RadialPosition, thresh=outerThresh),by="Barcode,Well,Spot"]
+
+#Require the cell not be in a sparse region
+denseOuterDT <- cDT[!cDT$Sparse  & cDT$OuterCell]
+denseOuterDT <- denseOuterDT[,Perimeter := findPerimeterCell(.SD) ,by="Barcode,Well,Spot,Wedge"]
+setkey(cDT,Barcode,Well,Spot,Object.ID)
+setkey(denseOuterDT,Barcode,Well,Spot,Object.ID)
+cDT <- denseOuterDT[,list(Barcode,Well,Spot,Object.ID,Perimeter)][cDT]
+cDT$Perimeter[is.na(cDT$Perimeter)] <- FALSE
+
+medianDT <- function(x) x/median(x,na.rm=TRUE)
+
+
+#Add a spot level normalizations on the intensity values
+if(ss %in% c("SS1", "SS3")){
+  cDT <- cDT[,Cyto.Mean.Intensity.Alexa.488.SpotNorm := medianDT(Cyto.Mean.Intensity.Alexa.488), by="Barcode,Well,Spot"]
+  cDT <- cDT[,Cyto.Mean.Intensity.Alexa.555.SpotNorm := medianDT(Cyto.Mean.Intensity.Alexa.555), by="Barcode,Well,Spot"]
+  cDT <- cDT[,Cyto.Mean.Intensity.Alexa.647.SpotNorm := medianDT(Cyto.Mean.Intensity.Alexa.647), by="Barcode,Well,Spot"]
+} else if (ss == "SS2"){
+  cDT <- cDT[,Mean.Intensity.Alexa.488.SpotNorm := medianDT(Mean.Intensity.Alexa.488), by="Barcode,Well,Spot"]
+  cDT <- cDT[,Mean.Intensity.Alexa.555.SpotNorm := medianDT(Mean.Intensity.Alexa.555), by="Barcode,Well,Spot"]
+  cDT <- cDT[,Mean.Intensity.Alexa.647.SpotNorm :=  medianDT(Mean.Intensity.Alexa.647), by="Barcode,Well,Spot"]
+} else stop("Invalid ss parameter")
+
 # Eliminate Variations in the Endpoint metadata
 endpointNames <- grep("End",colnames(cDT), value=TRUE)
 endpointWL <- regmatches(endpointNames,regexpr("[[:digit:]]{3}",endpointNames))
 setnames(cDT,endpointNames,paste0("Endpoint",endpointWL))
+
+#Cell cycle on total DNA under developent and not implemented
+# MclustCluster <- function(x){
+#   #browser()
+#   mod <- densityMclust(x,G=2, modelNames = "E")
+#   return(mod[["classification"]])
+# }
+# 
+# mixtoolCluster <- function(x){
+#   browser()
+#   histinfo <- hist(x,breaks=100)
+#   
+#   mod <- normalmixEM(x, sd.constr=c("a","a"))
+#   return(mod[["classification"]])
+# }
+# 
+# #Set 2N and 4N DNA status
+# cDT <- cDT[,DNA4N := kmeansCluster(Total.Intensity.DAPI), by="Barcode,Well"]
+
+#Create staining set specific derived parameters.
+if(ss == "SS1"){
+  
+} else if(ss== "SS2") {
+
+
+  cDT <- cDT[,EdUPositive := kmeansClusterEdUPositive(.SD, value="Mean.Intensity.Alexa.647.MedNorm"), by="Barcode"]
+  
+  #Calculate the EdU Positive Percent at each spot
+  cDT <- cDT[,EdUPositivePercent := sum(EdUPositive)/length(Object.ID),by="Barcode,Well,Spot"]
+  
+} else if(ss == "SS3"){
+  
+} else stop("invalid staining set")
+```
+
+```{r, echo=FALSE, message=FALSE, warnings=FALSE}
 
 write.table(cDT, paste0(ss,"/Cell/Annotated Data/",unique(sDT$CellLine),"_",ss,"_","CellAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 

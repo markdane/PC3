@@ -1,0 +1,343 @@
+---
+title: "LINCs MEPs PC3 SS2 Pilot Control Plate Analysis"
+author: "Mark Dane"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+##Summary
+
+
+##Introduction
+This dataset contains cell-level data for LINCs MEP Cell Cycle staining set (SS2).
+
+This dataset has been filtered on nuclear area to exclude objects with an area less than 425. 
+
+
+```{r setup, echo=FALSE, message=FALSE}
+library("ggplot2")
+library("data.table")
+library("MEMA")
+library("grid")
+
+numericMedian <- function(x) as.numeric(median(x))
+
+
+evalMedians <- function(values, reps){
+  tmp <- median(values[reps], na.rm=TRUE)
+}
+
+#popDT <- fread("./Annotated Data/LI8X00109PopAnn.txt")
+
+cDT <- fread("./Annotated Data/LI8X00109ACellAnn.txt")
+
+sDT <- fread("./Annotated Data/LI8X00109ASpotAnn.txt")
+
+hydrations <- sort(unique(cDT$Hydration))
+
+
+
+```
+
+\newpage
+
+##Stain Pseudoimages
+The pseudoimages of each well's raw signals at the 24 hour hydration point are shown in the plots below.
+
+```{r Pseudoimages_all_stains, echo=FALSE, fig.width=3.7,fig.height=4}
+
+hydration <- 24
+DT <-sDT[sDT$Hydration==hydration,]
+#Remove the fiducial entries
+setkey(DT,ShortName)
+DT <- DT[!"fiducial"]
+
+p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Mean.Intensity.DAPI))+
+  geom_point(size=2)+
+  scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+  scale_colour_gradient(low = "white", high = "red")+
+  guides(colour = guide_legend("Mean DAPI", keywidth = .5, keyheight = .5))+
+  ggtitle(paste("Mean Intensity DAPI in",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+  xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+  facet_wrap(~Well, ncol=4)
+suppressWarnings(print(p))
+
+p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Mean.Intensity.Alexa.488))+
+  geom_point(size=2)+
+  scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+  scale_colour_gradient(low = "white", high = "red")+
+  guides(colour = guide_legend("Mean H3", keywidth = .5, keyheight = .5))+
+  ggtitle(paste(unique(DT$EndPoint488)," in",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+  xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+  facet_wrap(~Well, ncol=4)
+suppressWarnings(print(p))
+
+p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Mean.Intensity.Alexa.555))+
+  geom_point(size=2)+
+  scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+  scale_colour_gradient(low = "white", high = "red")+
+  guides(colour = guide_legend("Mean Fibrillarin", keywidth = .5, keyheight = .5))+
+  ggtitle(paste(unique(DT$EndPoint555)," in",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+  xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+  facet_wrap(~Well, ncol=4)
+suppressWarnings(print(p))
+
+p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Mean.Intensity.Alexa.647))+
+  geom_point(size=2)+
+  scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+  scale_colour_gradient(low = "white", high = "red")+
+  guides(colour = guide_legend("Mean EdU", keywidth = .5, keyheight = .5))+
+  ggtitle(paste(unique(DT$EndPoint647)," in",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+  xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+  facet_wrap(~Well, ncol=4)
+suppressWarnings(print(p))
+
+
+```
+
+\newpage
+
+##Mean Intensity Comparisons
+
+The following boxplots summarize the intensity values from the first 3 1/2 rows (spots 1-65) of well A01, plate LI8X00109. These spots were scanned at 1, 24 and 72 hours after hydration.
+
+.  
+
+```{r Intensity_boxplots, echo=FALSE, fig.width=3.5, fig.height=4}
+#limit these comparisons to the common spots
+DT <- sDT[sDT$Spot <= 65]
+
+  p <- ggplot(DT, aes(x=factor(Hydration),y=Total.Intensity.DAPI))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching and Leaching in the\n Total DAPI Signal"))+xlab("Hydration Time (Hrs)")+ylab("DAPI")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+    p <- ggplot(DT, aes(x=factor(Hydration),y=Area))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching and Leaching in the\n DAPI Area Signal"))+xlab("Hydration Time (Hrs)")+ylab("Area")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=factor(Hydration),y=Mean.Intensity.Alexa.488))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching and Leaching in the\n","Mean",unique(DT$EndPoint488),"Signal"))+xlab("Hydration Time (Hrs)")+ylab("H3 (Mean.Intensity.Alexa.488)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+   
+  p <- ggplot(DT, aes(x=factor(Hydration),y=Total.Intensity.Alexa.488))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching and Leaching in the\n","Total",unique(DT$EndPoint488),"Signal"))+xlab("Hydration Time (Hrs)")+ylab("H3 (Total.Intensity.Alexa.488)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+   
+    p <- ggplot(DT, aes(x=factor(Hydration),y=Mean.Intensity.Alexa.555))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching and Leaching in the\nMean", unique(DT$EndPoint555), "Signal"))+ xlab("Hydration Time (Hrs)")+ylab("Fibrillarin (Mean.Intensity.Alexa.555)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+      p <- ggplot(DT, aes(x=factor(Hydration),y=Total.Intensity.Alexa.555))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching and Leaching in the\nTotal", unique(DT$EndPoint555), "Signal"))+ xlab("Hydration Time (Hrs)")+ylab("Fibrillarin (Total.Intensity.Alexa.555)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+    p <- ggplot(DT, aes(x=factor(Hydration),y=Mean.Intensity.Alexa.647))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching and Leaching in the\n", unique(DT$EndPoint647), "Signal"))+ xlab("Hydration Time (Hrs)")+ylab("EdU (Mean.Intensity.Alexa.647)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+
+      p <- ggplot(DT, aes(x=factor(Hydration),y=Total.Intensity.Alexa.647))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching and Leaching in the\nTotal", unique(DT$EndPoint647), "Signal"))+ xlab("Hydration Time (Hrs)")+ylab("EdU (Total.Intensity.Alexa.647)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+  DT <- cDT[cDT$Spot <= 65]  
+      p <- ggplot(DT, aes(x=Total.Intensity.DAPI,y=log2(Mean.Intensity.Alexa.647)))+
+    geom_point(size=.2)+xlim(0,1e7)+
+ggtitle(paste("Bleaching and Leaching in the\n",unique(DT$EndPoint647),"Signal"))+xlab("Total DAPI per Cell")+ylab("EdU (Mean.Intensity.Alexa.647)")+
+      facet_wrap(~Hydration)+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+
+```
+
+\newpage
+
+##Bleaching at 24 Hours
+The following boxplots are from images taken 24 hours after hydration. The comparisons are between the number of scans. This is the second scan on spots 1-65 and the first scan on spots 65-700.
+
+.  
+
+```{r Intensity_boxplots_bleaching_24, echo=FALSE, fig.width=3.5, fig.height=4}
+#Compare the whole array
+  DT <- sDT[sDT$Hydration==24]
+  DT$ScanCount <- 2
+  DT$ScanCount[DT$Spot > 65] <- 1
+  
+  p <- ggplot(DT, aes(x=factor(ScanCount),y=Total.Intensity.DAPI))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching in the\n Total DAPI Signal"))+xlab("Scan Count")+ylab("DAPI")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+    p <- ggplot(DT, aes(x=factor(ScanCount),y=Area))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching in the\n DAPI Area Signal"))+xlab("Scan Count")+ylab("DAPI Area")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=factor(ScanCount),y=Mean.Intensity.Alexa.488))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching in the\n",unique(DT$EndPoint488),"Signal"))+xlab("Scan Count")+ylab("H3 (Mean.Intensity.Alexa.488)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=factor(ScanCount),y=Mean.Intensity.Alexa.555))+
+    geom_boxplot()+
+   ggtitle(paste("Bleaching in the\n",unique(DT$EndPoint555),"Signal"))+xlab("Scan Count")+ylab("Fibrillarin (Mean.Intensity.Alexa.555)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=factor(ScanCount),y=Mean.Intensity.Alexa.647))+
+    geom_boxplot()+
+ggtitle(paste("Bleaching and Leaching in the\n",unique(DT$EndPoint647),"Signal"))+xlab("Scan Count")+ylab("EdU (Mean.Intensity.Alexa.647)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+  DT <- cDT[cDT$Hydration==24]
+  DT$ScanCount <- 2
+  DT$ScanCount[DT$Spot > 65] <- 1
+  
+    p <- ggplot(DT, aes(x=Total.Intensity.DAPI,y=log2(Mean.Intensity.Alexa.647)))+
+    geom_point(size=.2)+xlim(0,1e7)+
+ggtitle(paste("Bleaching and Leaching in the\n",unique(DT$EndPoint647),"Signal"))+xlab("Total DAPI per Cell")+ylab("EdU (Mean.Intensity.Alexa.647)")+
+      facet_wrap(~ScanCount)+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+
+```
+
+\newpage
+
+##Bleaching at 72 Hours
+The following boxplots are from images taken 72 hours after hydration. The comparisons are between the number of scans. This is the third scan on spots 1-65 and the second scan on spots 65-201.
+
+
+.  
+
+```{r Intensity_boxplots_bleaching_72, echo=FALSE, fig.width=3.5, fig.height=4}
+
+  #Compare the whole array
+  DT <- sDT[sDT$Hydration==72]
+  DT$ScanCount <- 3
+  DT$ScanCount[DT$Spot > 65] <- 2
+  DT$ScanCount[DT$Spot > 201] <- 1
+  
+    p <- ggplot(DT, aes(x=factor(ScanCount),y=Total.Intensity.DAPI))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching in the\n Total DAPI Signal"))+xlab("Scan Count")+ylab("DAPI")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+      p <- ggplot(DT, aes(x=factor(ScanCount),y=Area))+
+    geom_boxplot()+
+    ggtitle(paste("Bleaching in the\n DAPI Area Signal"))+xlab("Scan Count")+ylab("DAPI Area")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=factor(ScanCount),y=Mean.Intensity.Alexa.488))+
+    geom_boxplot()+
+ggtitle(paste("Bleaching in the\n",unique(DT$EndPoint488),"Signal"))+xlab("Scan Count")+ylab("H3 (Mean.Intensity.Alexa.488)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+
+  
+  p <- ggplot(DT, aes(x=factor(ScanCount),y=Mean.Intensity.Alexa.555))+
+    geom_boxplot()+
+ggtitle(paste("Bleaching and Leaching in the\n",unique(DT$EndPoint555),"Signal"))+xlab("Scan Count")+ylab("Fibrillarin (Mean.Intensity.Alexa.555)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=factor(ScanCount),y=Mean.Intensity.Alexa.647))+
+    geom_boxplot()+
+ggtitle(paste("Bleaching in the\n",unique(DT$EndPoint647),"Signal"))+xlab("Scan Count")+ylab("EdU (Mean.Intensity.Alexa.647)")+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+  DT <- cDT[cDT$Hydration==72]
+  DT$ScanCount <- 3
+  DT$ScanCount[DT$Spot > 65] <- 2
+  DT$ScanCount[DT$Spot > 201] <- 1
+  
+      p <- ggplot(DT, aes(x=Total.Intensity.DAPI,y=log2(Mean.Intensity.Alexa.647)))+
+    geom_point(size=.2)+xlim(0,1e7)+
+ggtitle(paste("Bleaching in the\n",unique(DT$EndPoint647),"Signal"))+xlab("Total DAPI per Cell")+ylab("EdU (Mean.Intensity.Alexa.647)")+
+      facet_wrap(~ScanCount)+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+  suppressWarnings(print(p))
+  
+```
+
+\newpage
+
+##Focus Z Height
+The following plots are from the 24 hour hydration data. The Z values are the ScanR focus height at each spot. The pseudoimage shows that the upper right corner has the lowest Z values as confirmed by the Array Column and Array Row boxplots. The last set of boxplots show the z values for each ECM protein's replicates. Nidogen has the lowest median Z value.
+
+.  
+
+```{r Z_Heights, echo=FALSE, fig.width=3.5, fig.height=4}
+
+hydration <- 24
+DT <-sDT[sDT$Hydration==hydration,]
+
+
+p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Z))+
+  geom_point(size=2)+
+  scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+  scale_colour_gradient(low = "white", high = "red")+
+  guides(colour = guide_legend("Z Height", keywidth = .5, keyheight = .5))+
+  ggtitle(paste("Z Height at 24 hours of Hydration"))+
+  xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+  facet_wrap(~Well, ncol=4)
+suppressWarnings(print(p))
+
+p <- ggplot(DT, aes(x=SpotCellCount, y=Z))+
+  geom_point()+
+  ggtitle(paste("Z Height at 24 hours of Hydration"))+
+  xlab("Spot Cell Count")+ylab("Focus Z Height")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+p <- ggplot(DT, aes(x=factor(ArrayColumn), y=Z))+
+  geom_boxplot()+
+  ggtitle(paste("Z Height at 24 hours of Hydration"))+
+  xlab("Array Column")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+p <- ggplot(DT, aes(x=factor(ArrayRow), y=Z))+
+  geom_boxplot()+
+  ggtitle(paste("Z Height at 24 hours of Hydration"))+
+  xlab("Array Row")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+
+```
+
+```{r Z_vs_ECM,echo=FALSE, fig.width=8, fig.height=4}
+
+p <- ggplot(DT, aes(x=reorder(ShortName, Z, FUN=median), y=Z))+
+  geom_boxplot()+
+  ggtitle(paste("Z Height at 24 hours of Hydration"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+```

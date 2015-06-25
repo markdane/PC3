@@ -1,0 +1,377 @@
+---
+title: "LINCs MEP SS1 Pilot Analysis Pipeline"
+author: "Mark Dane"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+##Summary
+This experiment uses the LINCs Structure and Morphology staining set on PC3 cells in 8 well MEMAs. 
+
+##Introduction
+The plates were printed with 35 row by 20 column MEMAs using a 4x7 pin head that printed 5x5 blocks. Each sample spot contains one ECM protein paired with Collagen I. There are 46 different ECM proteins in the array arranged in a random fashion.
+
+Images of each well were gathered on a Tecan LS Reloaded laser scanner and Olympus ScanR automated microscope. This staining set includes, DAPI, phalloidin (488nm), CellMask (532 and 555nm) and MitoTracker (635 and 647nm). Data from DAPI staining is only gathered by the ScanR. 
+
+Tecan data is gathered at the spot population level by fitting round regions of interest (ROIs) to each spot. The Tecan data in this report uses the net values defined as the raw ROI value minus the mean of the local background.
+
+The ScanR data comes from the nucleus as defined by the DAPI staining and a cytoplasmic annulus of 10 pixels that surrounds the nucleus.
+
+The spots that were not printed are labeled as blank.  
+
+
+```{r setup, echo=FALSE, message=FALSE}
+library("ggplot2")
+library("data.table")
+library("MEMA")
+library("grid")
+
+numericMedian <- function(x) as.numeric(median(x))
+
+
+evalMedians <- function(values, reps){
+  tmp <- median(values[reps], na.rm=TRUE)
+}
+
+popDT <- fread("./SS1/Population/Annotated Data/PC3_SS1_PopAnn.txt")
+
+cDT <- fread("./SS1/Cell/Annotated Data/PC3_SS1_CellAnn.txt")
+
+sDT <- fread("./SS1/Cell/Annotated Data/PC3_SS1_CellSpotAnn.txt")
+
+barcodes <- sort(unique(cDT$Barcode))
+
+#Set a threshold for filtering wells on their QA score
+wellQAThresh <- 0.7
+
+#TODO: Read this from sDT
+lthresh <- 0.6
+
+# Clean up the dataset that will be used in the analysis
+popDT <- popDT[!popDT$ShortName =="blank"]
+popDT$ShortName <- gsub("blank","",popDT$ShortName)
+setnames(popDT,"Ligand","LigandAnnotID")
+ms <- gregexpr("^[[:alnum:]]*[^_]", popDT$LigandAnnotID)
+popDT$Ligand <- unlist(regmatches(popDT$LigandAnnotID, ms))
+
+
+```
+
+\newpage
+
+##QA Scoring of the dataset
+Each well is scored for even cell seeding according the count of the DAPI-stained nuclei.
+
+```{r Heatmaps_QAScores, echo=FALSE, fig.width=3.7,fig.height=4}
+
+for (barcode in barcodes){
+  DT <-sDT[sDT$Barcode==barcode,]
+  #Remove the fiducial entries
+  setkey(DT,ShortName)
+  DT <- DT[!"fiducial"]
+
+  p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=SpotCellCount))+
+    geom_point(size=1)+
+    scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+    scale_colour_gradient(low = "white", high = "red")+
+    guides(colour = guide_legend("Spot Cell Count", keywidth = .5, keyheight = .5))+
+    ggtitle(paste("Spot Cell Count for",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+    xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=LoessSCC))+
+    geom_point(size=1)+
+    scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+    scale_colour_gradient(low = "white", high = "red")+
+    guides(colour = guide_legend("Spot Cell Count", keywidth = .5, keyheight = .5))+
+    ggtitle(paste("Loess Model of Spot Cell Count for",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+    xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+  
+  p <- ggplot(DT, aes(x=SpotCellCount))+
+    geom_histogram(binwidth=5)+
+    ggtitle(paste("Spot Cell Count for",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Spot Cell Count")+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+  wellScores <- unique(DT[,list(Well, QAScore=sprintf("%.2f",QAScore))])
+
+  p <- ggplot(DT, aes(x=LoessSCC))+
+    geom_histogram(binwidth=.04)+
+    geom_vline(xintercept=lthresh, colour="blue")+
+    geom_text(data=wellScores, aes(label=paste0("QA\n",QAScore)), x = 1.5, y = 40, size = rel(3), colour="red")+
+    ggtitle(paste("Loess Model of Spot Cell Count for",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Spot Cell Count")+xlim(0,3)+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+    
+  cat(sprintf("Mean QA Score for %9s = %.2f \n",barcode,mean(DT$QAScore)))
+
+}
+
+```
+
+\newpage
+
+##Stain Pseudoimages
+The pseudoimages of each well's raw signals are shown in the plots below.
+
+```{r Pseudoimages_all_stains, echo=FALSE, fig.width=3.7,fig.height=4}
+
+for (barcode in sort(unique(sDT$Barcode))){
+  DT <-sDT[sDT$Barcode==barcode,]
+  #Remove the fiducial entries
+  setkey(DT,ShortName)
+  DT <- DT[!"fiducial"]
+
+  p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Mean.Intensity.DAPI))+
+    geom_point(size=1)+
+    scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+    scale_colour_gradient(low = "white", high = "red")+
+    guides(colour = guide_legend("Spot Cell Count", keywidth = .5, keyheight = .5))+
+    ggtitle(paste("Mean Intensity DAPI in",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+    xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Cyto.Mean.Intensity.Alexa.488))+
+    geom_point(size=1)+
+    scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+    scale_colour_gradient(low = "white", high = "red")+
+    guides(colour = guide_legend("Spot Cell Count", keywidth = .5, keyheight = .5))+
+    ggtitle(paste(unique(DT$Endpoint488)," in",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+    xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Cyto.Mean.Intensity.Alexa.555))+
+    geom_point(size=1)+
+    scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+    scale_colour_gradient(low = "white", high = "red")+
+    guides(colour = guide_legend("Spot Cell Count", keywidth = .5, keyheight = .5))+
+    ggtitle(paste(unique(DT$Endpoint555)," in",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+    xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Cyto.Mean.Intensity.Alexa.647))+
+    geom_point(size=1)+
+    scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+    scale_colour_gradient(low = "white", high = "red")+
+    guides(colour = guide_legend("Spot Cell Count", keywidth = .5, keyheight = .5))+
+    ggtitle(paste(unique(DT$Endpoint647)," in",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
+    xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+  
+}
+
+```
+
+\newpage
+
+##Z Height Pseudoimages
+The pseudoimages of plate LI8X00102's focus Z heights are shown in the plots below.
+
+```{r Z_Height_Pseudoimages, echo=FALSE, fig.width=3.7,fig.height=4}
+
+barcode <- barcodes[2]
+  DT <-sDT[sDT$Barcode==barcode,]
+  #Remove the fiducial entries
+  setkey(DT,ShortName)
+  DT <- DT[!"fiducial"]
+
+p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=Z))+
+  geom_point(size=1)+
+  scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
+  scale_colour_gradient(low = "white", high = "red")+
+  guides(colour = guide_legend("Z Height", keywidth = .5, keyheight = .5))+
+  ggtitle(paste("Z Height at 24 hours of Hydration"))+
+  xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+  facet_wrap(~Well, ncol=4)
+suppressWarnings(print(p))
+
+p <- ggplot(DT, aes(x=factor(Well), y=Z))+
+  geom_boxplot()+
+  ggtitle(paste("Z Height By Well for Plate LI8X00102"))+
+  xlab("Well")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+```
+
+```{r Z_vs_ECM,echo=FALSE, fig.width=8, fig.height=4}
+
+p <- ggplot(DT, aes(x=reorder(ShortName, Z, FUN=median), y=Z))+
+  geom_boxplot()+
+  ggtitle(paste("Z Height By ECM for Plate LI8X00102"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+```
+
+##Filtering
+Wells with QA scores below `r wellQAThresh ` are removed from further analysis due to quality issues in the cell level data. The HighSerum control wells are also excluded from the plots.
+
+
+```{r Filtering, echo=FALSE}
+
+passedQAWells <- unique(sDT[sDT$QAScore > wellQAThresh,list(Barcode,Well)])
+
+
+setkey(cDT,Barcode,Well)
+cDT <- merge(cDT,passedQAWells)
+
+setkey(sDT,Barcode,Well)
+sDT <- merge(sDT,passedQAWells)
+
+setkey(cDT,Ligand)
+cDT <- cDT[!"HighSerum"]
+
+setkey(sDT,Ligand)
+sDT <- sDT[!"HighSerum"]
+
+```
+
+\newpage
+
+##Univariate Signal Distributions
+The first step in the EDA is to look at the filtered and normalized univariate cell-level signal responses.
+
+```{r Univariate Signals, echo=FALSE, fig.width=4}
+
+for (barcode in barcodes){
+  setkey(cDT, Barcode)
+  DT <- cDT[barcode]
+
+  p <- ggplot(DT, aes(x=Cyto.Mean.Intensity.Alexa.488))+
+    geom_histogram(binwidth = 5)+
+    ggtitle(paste(unique(DT$Endpoint488),"Signal in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Cyto.Mean.Intensity.Alexa.488")+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+    p <- ggplot(DT, aes(x=Cyto.Mean.Intensity.Alexa.555))+
+    geom_histogram(binwidth = 5)+
+    ggtitle(paste(unique(DT$Endpoint555),"Signal in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Cyto.Mean.Intensity.Alexa.555")+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+    p <- ggplot(DT, aes(x=Cyto.Mean.Intensity.Alexa.647))+
+    geom_histogram(binwidth = 1)+
+    ggtitle(paste(unique(DT$Endpoint647),"Signal in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Cyto.Mean.Intensity.Alexa.647")+
+  xlim(0,60)+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+  
+      p <- ggplot(DT, aes(x=Density))+
+    geom_histogram(binwidth = .3)+
+    ggtitle(paste("Density of", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Density")+
+  #xlim(0,60)+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    facet_wrap(~Well, ncol=4)
+  suppressWarnings(print(p))
+}
+```
+
+##Bivariate Plots
+
+```{r Bivariate Signals, echo=FALSE,eval=FALSE, fig.width=4}
+
+for (barcode in barcodes){
+  setkey(cDT, Barcode)
+  DT <- cDT[barcode]
+
+  p <- ggplot(DT, aes(x=Cyto.Mean.Intensity.Alexa.488.MedNorm, y=Cyto.Mean.Intensity.Alexa.647.MedNorm, colour=ShortName))+
+    geom_point(size=.5,alpha=.5)+
+    guides(colour=guide_legend(ncol = 2,override.aes = list(alpha = 1,size=2)))+
+    ggtitle(paste(unique(DT$Endpoint647),"vs", unique(DT$Endpoint488),"in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab(unique(DT$Endpoint488))+ylab(unique(DT$Endpoint647))+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),legend.key.size = unit(.3, "cm"))+
+    facet_wrap(~Ligand, ncol=4)
+  suppressWarnings(print(p))
+  
+     p <- ggplot(DT, aes(x=SpotCellCount, y=Cyto.Mean.Intensity.Alexa.488.MedNorm, colour=ShortName))+
+    geom_point(size=.5,alpha=.5)+
+    guides(colour=guide_legend(ncol = 2,override.aes = list(alpha = 1,size=2)))+
+    ggtitle(paste(unique(DT$Endpoint488),"vs", "Spot Cell Count","in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Spot Cell Count")+ylab(unique(DT$Endpoint488))+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),legend.key.size = unit(.3, "cm"))+
+    facet_wrap(~Ligand, ncol=4)
+  suppressWarnings(print(p))
+  
+       p <- ggplot(DT, aes(x=SpotCellCount, y=Cyto.Mean.Intensity.Alexa.647.MedNorm, colour=ShortName))+
+    geom_point(size=.5,alpha=.5)+
+    guides(colour=guide_legend(ncol = 2,override.aes = list(alpha = 1,size=2)))+
+    ggtitle(paste(unique(DT$Endpoint647),"vs", "Spot Cell Count","in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Spot Cell Count")+ylab(unique(DT$Endpoint647))+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),legend.key.size = unit(.3, "cm"))+
+    facet_wrap(~Ligand, ncol=4)
+  suppressWarnings(print(p))
+}
+```
+
+##Bivariate Plots With Density
+
+```{r Bivariate_density, echo=FALSE,, fig.width=4, eval=FALSE}
+
+for (barcode in barcodes){
+  setkey(sDT, Barcode)
+  DT <- sDT[barcode]
+
+    p <- ggplot(DT, aes(x=Density, y=SpotCellCount, colour=ShortName))+
+    geom_point(size=1,alpha=.5)+
+    guides(colour=guide_legend(ncol = 2,override.aes = list(alpha = 1,size=2)))+
+    ggtitle(paste("SpotCellCount","vs", "Density","in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Density")+ylab("SpotCellCount")+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),legend.key.size = unit(.3, "cm"))+
+    facet_wrap(~Ligand, ncol=4)
+  suppressWarnings(print(p))
+  
+   p <- ggplot(DT, aes(x=Density, y=Mean.Intensity.DAPI, colour=ShortName))+
+    geom_point(size=2,alpha=.5)+
+    guides(colour=guide_legend(ncol = 2,override.aes = list(alpha = 1,size=2)))+
+    ggtitle(paste("Mean DAPI","vs", "Density","in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Density")+ylab("Mean DAPI")+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),legend.key.size = unit(.3, "cm"))+
+    facet_wrap(~Ligand, ncol=4)
+  suppressWarnings(print(p))
+   p <- ggplot(DT, aes(x=Density, y=Cyto.Mean.Intensity.Alexa.647.MedNorm, colour=ShortName))+
+    geom_point(size=2,alpha=.5)+
+    guides(colour=guide_legend(ncol = 2,override.aes = list(alpha = 1,size=2)))+
+    ggtitle(paste(unique(DT$Endpoint647),"vs", "Density","in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Density")+ylab(unique(DT$Endpoint647))+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),legend.key.size = unit(.3, "cm"))+
+    facet_wrap(~Ligand, ncol=4)
+  suppressWarnings(print(p))
+  
+   p <- ggplot(DT, aes(x=Density, y=Cyto.Mean.Intensity.Alexa.488.MedNorm, colour=ShortName))+
+    geom_point(size=2,alpha=.5)+
+    guides(colour=guide_legend(ncol = 2,override.aes = list(alpha = 1,size=2)))+
+    ggtitle(paste(unique(DT$Endpoint488),"vs", "Density","in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Density")+ylab(unique(DT$Endpoint488))+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),legend.key.size = unit(.3, "cm"))+
+    facet_wrap(~Ligand, ncol=4)
+  suppressWarnings(print(p))
+  
+  p <- ggplot(DT, aes(x=Density, y=Cyto.Mean.Intensity.Alexa.555.MedNorm, colour=ShortName))+
+    geom_point(size=2,alpha=.5)+
+    guides(colour=guide_legend(ncol = 2,override.aes = list(alpha = 1,size=2)))+
+    ggtitle(paste(unique(DT$Endpoint555),"vs", "Density","in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Density")+ylab(unique(DT$Endpoint555))+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),legend.key.size = unit(.3, "cm"))+
+    facet_wrap(~Ligand, ncol=4)
+  suppressWarnings(print(p))
+ 
+   
+   p <- ggplot(DT, aes(x=Density, y=Cyto.Mean.Intensity.Alexa.647.MedNorm, colour=ShortName))+
+    geom_point(size=2,alpha=.5)+
+    guides(colour=guide_legend(ncol = 2,override.aes = list(alpha = 1,size=2)))+
+    ggtitle(paste(unique(DT$Endpoint647),"vs", "Density","in", unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Density")+ylab(unique(DT$Endpoint647))+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)),legend.key.size = unit(.3, "cm"))+
+    facet_wrap(~Ligand, ncol=4)
+  suppressWarnings(print(p))
+  
+   
+}
+```
