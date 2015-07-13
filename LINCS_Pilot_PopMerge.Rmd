@@ -19,7 +19,7 @@ library("MEMA")
 library("data.table")
 
 #Select a staining set
-ss <- "SS3"
+ss <- "SS1"
 
 ```
 

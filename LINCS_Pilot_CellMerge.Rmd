@@ -37,102 +37,15 @@ library("data.table")
 library("parallel")
 #library("grid")
 
-
-integerMedian <- function(x) as.integer(median(x))
-
-numericMedian <- function(x) as.numeric(median(x))
-
-#TODO Move these functions into the MEMA package
-calcQAScore <- function(DT, threshold, maxNrSpot=700, value){
-  QAScore <- (nrow(DT)-sum(DT[,value,with=FALSE] < threshold))/maxNrSpot
-  return (QAScore)
-}
-
-# count the number of cells within a euclidean distance from each cell
-spotCellDensities <- function(spot,radius=(max(spot$X)-min(spot$X))/5) {
-  distMatrix <- as.matrix(dist(spot[,list(X,Y)]))
-  count <- apply(distMatrix, 2, function(x){sum(x <= radius) - 1})
-  cellDensity <- count/(pi*radius^2)
-  return(cellDensity)
-}
-
-  loessModel <- function (data, value, span) 
-  {
-    #browser()
-    if(nrow(data)==1) return(0)
-    dataModel <- loess(as.formula(paste0(value, " ~ ArrayRow+ArrayColumn")),data, span = span)
-    dataPredicted <- predict(dataModel)
-    predictedMedian <- median(dataPredicted, na.rm = TRUE)
-    dataNormed <- dataPredicted/predictedMedian
-  }
-  
-  
-#Function from Roland on Stack Overflow
-#http://stackoverflow.com/questions/23018056/convert-cartesian-angles-to-polar-compass-cardinal-angles-in-r
-ang <- function(x,y) { 
-  z <- x + 1i * y
-  res <- 90 - Arg(z) / pi * 180
-  res %% 360
-}
-
-findPerimeterCell <- function(x){
-  #browser()
-  if(!nrow(x)==0){
-  perimeterLogicals <- vector(length=nrow(x))
-  perimeterLogicals[which.max(x$RadialPosition)] <- TRUE
-  }
-  return(perimeterLogicals)
-}
-
-labelOuterCells <- function(x, thresh=.75){
-  #browser()
-  outerLogicals <- NULL
-  if(!length(x)==0){
-  outerLogicals <- x>quantile(x,probs = thresh, na.rm=TRUE)
-  }
-  return(outerLogicals)
-}
-
-
-kmeansCluster <- function (x, centers = 2) 
-{
-  #browser()
-  x <- data.frame(x)
-    xkmeans <- kmeans(x, centers = centers)
-    if(centers==2){
-      if(xkmeans$centers[1] > xkmeans$centers[2]){
-        tmp <- xkmeans$cluster == 1
-        xkmeans$cluster[xkmeans$cluster == 2] <- 1L
-        xkmeans$cluster[tmp] <- 2L
-      }
-    }
-    return(xkmeans[["cluster"]])
-}
-
-  
-  kmeansClusterEdUPositive <- function(x,value){
-    highSerumEdUPos <- kmeansCluster(log2(x[[value]][x$Ligand=="HighSerum"]))
-    edUPositiveThresh <- min(x[[value]][x$Ligand=="HighSerum"][highSerumEdUPos==2])
-    clusters <- rep.int(1,nrow(x))
-    clusters[x[[value]]>edUPositiveThresh] <- 2
-    return(clusters)
-  }
-  
-  fixedThreshEdUPositive <- function(x,value,thresh){
-    clusters <- rep.int(1,nrow(x))
-    clusters[x[[value]]>thresh] <- 2
-    return(clusters)
-  }
-  
 #Select a staining set
-ss <- "SS1"
+ss <- "SS2"
 densityThresh <- 0.4
 outerThresh <- 0.5
 
 ```
 
 
-```{r Read and clean spotmetadata}
+```{r Read and clean spotmetadata, echo=FALSE}
 
 #Read in the spot metadata from the gal file
 smd <- readSpotMetadata(paste0("./",ss,"/Metadata/20150515_LI8X001_v1.gal"))
@@ -160,9 +73,11 @@ splits <- strsplit2(strsplit2(cellDataFiles,split = "_")[,1],"/")
 barcodes <- unique(splits[,ncol(splits)])
 
 expDTList <- lapply(barcodes, function(barcode){
+  #browser()
   plateDataFiles <- grep(barcode,cellDataFiles,value = TRUE)
   wells <- unique(strsplit2(split = "_",plateDataFiles)[,2])
   wellDataList <- lapply(wells,function(well){
+    #browser()
     wellDataFiles <- grep(well,plateDataFiles,value = TRUE)
     mainDataFile <- grep("main",wellDataFiles,value=TRUE,ignore.case = TRUE)
     cytoDataFile <- grep("Cyto10",wellDataFiles,value=TRUE,ignore.case = TRUE)
@@ -240,6 +155,7 @@ cDT <- rbindlist(expDTList, fill = TRUE)
 ```
 
 ```{r, echo=FALSE, message=FALSE, warnings=FALSE}
+
 cDT$Total.Intensity.DAPI <- cDT$Area*cDT$Mean.Intensity.DAPI
 
 #Create a display name for the ligands
@@ -252,48 +168,24 @@ cDT$ECMpAnnotID <- cDT$Name
 ms <- gregexpr("^[[:alnum:]]*[^_]", cDT$ECMpAnnotID)
 cDT$ECMp <- unlist(regmatches(cDT$ECMpAnnotID, ms))
 
-#Add the cell density
-#Average nuclear radius is 40 so touching nuclei are 80 apart
-#Set neighborhood as 4 nuclei radii
-cDT <- cDT[,Density:=spotCellDensities(.SD, radius=160)*10000,by="Barcode,Well,Spot"]
-
-#Add local cartesian and polar coordinates to each cell
-cDT <- cDT[,XLocal := X-median(X), by="Barcode,Well,Spot"]
-cDT <- cDT[,YLocal := Y-median(Y), by="Barcode,Well,Spot"]
-cDT <- cDT[,RadialPosition := sqrt(XLocal^2+YLocal^2)]
-cDT <- cDT[,Theta := ang(XLocal,YLocal)]
-
-cDT <- cDT[,Sparse := Density < densityThresh]
-
-#Add a local wedge ID to each cell based on conversations with Michel Nederlof
-wedgeAngs <- 20
-cDT <- cDT[,Wedge:=ceiling(Theta/wedgeAngs)]
-
-#Define the perimeter cell if it exists in each wedge
-#Classify cells as outer if they have a radial position greater than a thresh
-
-cDT <- cDT[,OuterCell := labelOuterCells(RadialPosition, thresh=outerThresh),by="Barcode,Well,Spot"]
-
-#Require the cell not be in a sparse region
-denseOuterDT <- cDT[!cDT$Sparse  & cDT$OuterCell]
-denseOuterDT <- denseOuterDT[,Perimeter := findPerimeterCell(.SD) ,by="Barcode,Well,Spot,Wedge"]
+#Add the local cartesian and polar coordinates, wedge, Density, and classifications for Sparse, OuterCell and Perimeter
 setkey(cDT,Barcode,Well,Spot,Object.ID)
-setkey(denseOuterDT,Barcode,Well,Spot,Object.ID)
-cDT <- denseOuterDT[,list(Barcode,Well,Spot,Object.ID,Perimeter)][cDT]
-cDT$Perimeter[is.na(cDT$Perimeter)] <- FALSE
-
-medianDT <- function(x) x/median(x,na.rm=TRUE)
+cDT <- merge(cDT,setkey(positionParms(cDT),Barcode,Well,Spot,Object.ID))
 
 
 #Add a spot level normalizations on the intensity values
 if(ss %in% c("SS1", "SS3")){
-  cDT <- cDT[,Cyto.Mean.Intensity.Alexa.488.SpotNorm := medianDT(Cyto.Mean.Intensity.Alexa.488), by="Barcode,Well,Spot"]
-  cDT <- cDT[,Cyto.Mean.Intensity.Alexa.555.SpotNorm := medianDT(Cyto.Mean.Intensity.Alexa.555), by="Barcode,Well,Spot"]
-  cDT <- cDT[,Cyto.Mean.Intensity.Alexa.647.SpotNorm := medianDT(Cyto.Mean.Intensity.Alexa.647), by="Barcode,Well,Spot"]
+  cDT <- cDT[,Cyto.Mean.Intensity.Alexa.488.SpotNorm := Cyto.Mean.Intensity.Alexa.488/median(Cyto.Mean.Intensity.Alexa.488, na.rm=TRUE), by="Barcode,Well,Spot"]
+  cDT <- cDT[,Cyto.Mean.Intensity.Alexa.555.SpotNorm := Cyto.Mean.Intensity.Alexa.555/median(Cyto.Mean.Intensity.Alexa.555, na.rm=TRUE), by="Barcode,Well,Spot"]
+  cDT <- cDT[,Cyto.Mean.Intensity.Alexa.647.SpotNorm := Cyto.Mean.Intensity.Alexa.647/median(Cyto.Mean.Intensity.Alexa.647, na.rm=TRUE), by="Barcode,Well,Spot"]
 } else if (ss == "SS2"){
-  cDT <- cDT[,Mean.Intensity.Alexa.488.SpotNorm := medianDT(Mean.Intensity.Alexa.488), by="Barcode,Well,Spot"]
-  cDT <- cDT[,Mean.Intensity.Alexa.555.SpotNorm := medianDT(Mean.Intensity.Alexa.555), by="Barcode,Well,Spot"]
-  cDT <- cDT[,Mean.Intensity.Alexa.647.SpotNorm :=  medianDT(Mean.Intensity.Alexa.647), by="Barcode,Well,Spot"]
+  cDT <- cDT[,Mean.Intensity.Alexa.488.SpotNorm := Mean.Intensity.Alexa.488/median(Mean.Intensity.Alexa.488, na.rm=TRUE), by="Barcode,Well,Spot"]
+ DT <- cDT[,Mean.Intensity.Alexa.555.SpotNorm := Mean.Intensity.Alexa.555/median(Mean.Intensity.Alexa.555, na.rm=TRUE), by="Barcode,Well,Spot"]
+ DT <- cDT[,Mean.Intensity.Alexa.647.SpotNorm := Mean.Intensity.Alexa.647/median(Mean.Intensity.Alexa.647, na.rm=TRUE), by="Barcode,Well,Spot"]
+    
+  cDT <- cDT[,EdUPositive := kmeansCluster(.SD, value="Mean.Intensity.Alexa.647.MedNorm", ctrlLigand = "HighSerum"), by="Barcode"]
+  #Calculate the EdU Positive Percent at each spot
+  cDT <- cDT[,EdUPositiveProportion := sum(EdUPositive)/length(Object.ID),by="Barcode,Well,Spot"]
 } else stop("Invalid ss parameter")
 
 # Eliminate Variations in the Endpoint metadata
@@ -325,32 +217,28 @@ if(ss == "SS1"){
 } else if(ss== "SS2") {
 
 
-  cDT <- cDT[,EdUPositive := kmeansClusterEdUPositive(.SD, value="Mean.Intensity.Alexa.647.MedNorm"), by="Barcode"]
-  
-  #Calculate the EdU Positive Percent at each spot
-  cDT <- cDT[,EdUPositivePercent := sum(EdUPositive)/length(Object.ID),by="Barcode,Well,Spot"]
+
   
 } else if(ss == "SS3"){
   
 } else stop("invalid staining set")
 ```
 
-```{r, echo=FALSE, message=FALSE, warnings=FALSE}
+```{r, echo=FALSE, message=FALSE, warnings=FALSE, eval=TRUE}
 
-write.table(cDT, paste0(ss,"/Cell/Annotated Data/",unique(sDT$CellLine),"_",ss,"_","CellAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(cDT, paste0(ss,"/Cell/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","CellAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+```
+
+```{r SpotLevelData, echo=FALSE}
 
 #Summarize cell data to spot level (sl) by taking the medians of the parameters
-slNames<-grep(pattern="(Total.Intensity.DAPI|Mean.Intensity.DAPI|Total.Intensity.Alexa.488|Mean.Intensity.Alexa.488|Mean.Intensity.Alexa.555|Mean.Intensity.Alexa.647|Mean.Intensity.Alexa.555|Area|SpotCellCount|EdUPositivePercent|Population488|Population555|Population647|Loess|Density|Z|Barcode|^Spot$|^Well$)",x=names(cDT),value=TRUE)
+slNames<-grep(pattern="(Total|Mean|Elongation|Area|SpotCellCount|EdUPositive|RadialPosition|Population|Loess|Density|Z|Barcode|^Spot$|^Well$)",x=names(cDT),value=TRUE)
 slKeep<-cDT[,slNames,with=FALSE]
 slDT<-slKeep[,lapply(.SD,numericMedian),keyby="Barcode,Well,Spot"]
 
 #Merge back in the spot and well metadata
-mDT <- cDT[,list(Row,Column,PrintOrder,Depositions,Block,Name,ID,ArrayRow,ArrayColumn,Spot,ShortName,Well,CellLine,Ligand,LigandAnnotID,Endpoint488,Endpoint555,Endpoint647,WellIndex),keyby="Barcode,Well,Spot"]
+mDT <- cDT[,list(Row,Column,PrintOrder,Depositions,Block,Name,ID,ArrayRow,ArrayColumn,ShortName,CellLine,Ligand,LigandAnnotID,Endpoint488,Endpoint555,Endpoint647,DAPI,WellIndex,ECMpAnnotID,ECMp),keyby="Barcode,Well,Spot"]
 slDT <- mDT[slDT, mult="first"]
-#TODO: Determine a cleaner way to not duplicate the key columns
-slDT <-slDT[,Well.1:=NULL]
-slDT <-slDT[,Spot.1:=NULL]
-
 
 #Calculate CVs for each set of replicates in the ScanR data
 cvNames<-grep(pattern="(Intensity|Area|SpotCellCount|Population|EdUPositivePercent|Barcode|^Name$|^Well$)",x=names(slDT),value=TRUE)
@@ -366,8 +254,34 @@ slDT <- slDT[cv]
 lthresh <- 0.6
   slDT <- slDT[,QAScore := calcQAScore(.SD,threshold=lthresh,maxNrSpot = max(cDT$ArrayRow)*max(cDT$ArrayColumn),value="LoessSCC"),by="Barcode,Well"]
 
-write.table(slDT, paste0(ss,"/Cell/Annotated Data/",unique(sDT$CellLine),"_",ss,"_","CellSpotAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+```
 
+```{r, echo=FALSE, eval=TRUE}
+  
+write.table(slDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","CellSpotAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 ```
 
+```{r MEPLevelData, echo=FALSE}
+  
+  
+  #Summarize spot level data to MEP level by taking the medians of the parameters
+  mepNames<-grep(pattern="(^Total|^Mean|Elongation|^Area|Z|^SpotCellCount|Loess|RadialPosition|EdUPositiveProportion|Population|Density|LigandAnnotID|ECMpAnnotID)",x=names(slDT),value=TRUE)
+  
+  #Remove Spot normalized values
+  mepNames<-grep(pattern="(SpotNorm$)",x=mepNames,value=TRUE,invert=TRUE)
+  
+  mepKeep<-slDT[,mepNames,with=FALSE]
+  mepDT<-mepKeep[,lapply(.SD,numericMedian),keyby="LigandAnnotID,ECMpAnnotID"]
+  
+  #Merge back in the replicate metadata
+  mDT <- slDT[,list(Name,ID,ShortName,Well,CellLine,Ligand,Endpoint488,Endpoint555,Endpoint647,DAPI,ECMp),keyby="LigandAnnotID,ECMpAnnotID"]
+  mepDT <- mDT[mepDT, mult="first"]
+  
+```
+
+```{r, echo=FALSE, eval=TRUE}
+  
+write.table(mepDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","CellMepAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+
+```

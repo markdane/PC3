@@ -22,11 +22,6 @@ library("data.table")
 library("MEMA")
 library("grid")
 
-numericMedian <- function(x) as.numeric(median(x))
-
-evalMedians <- function(values, reps){
-  tmp <- median(values[reps], na.rm=TRUE)
-}
 
 create8WellPseudoImage <- function(DT, pr, prDisplay){
   p <- ggplot(DT, aes_string(x="ArrayColumn", y="ArrayRow",colour=pr))+
@@ -54,6 +49,8 @@ popDT <- fread(paste0("./",ss,"/Population/Annotated Data/PC3_",ss,"_PopAnn.txt"
 cDT <- fread(paste0("./",ss,"/Cell/Annotated Data/PC3_",ss,"_CellAnn.txt"), showProgress = FALSE)
 
 sDT <- fread(paste0("./",ss,"/Cell/Annotated Data/PC3_",ss,"_CellSpotAnn.txt"))
+
+mepDT <- fread(paste0("./",ss,"/Cell/Annotated Data/PC3_",ss,"_CellMepAnn.txt"))
 
 barcodes <- sort(unique(cDT$Barcode))
 
@@ -161,7 +158,7 @@ for (barcode in barcodes){
 ##Z Height Pseudoimages
 The pseudoimages of the focus Z heights are shown in the plots below.
 
-```{r Z_Height_Pseudoimages, echo=FALSE, fig.width=3.7,fig.height=4, eval=FALSE}
+```{r Z_Height_Pseudoimages, echo=FALSE, fig.width=3.7,fig.height=4, eval=TRUE}
 
 for(barcode in barcodes){
   DT <-sDT[sDT$Barcode==barcode,]
@@ -191,7 +188,7 @@ for(barcode in barcodes){
 
 ```
 
-```{r Z_vs_ECM,echo=FALSE, fig.width=8, fig.height=4, eval=FALSE}
+```{r Z_vs_ECM,echo=FALSE, fig.width=8, fig.height=4, eval=TRUE}
 for(barcode in barcodes){
   DT <-sDT[sDT$Barcode==barcode,]
   #Remove the fiducial entries
@@ -257,7 +254,7 @@ if (ss == "SS1"){
     for (barcode in unique(cDT$Barcode)){
   mDT <- cDT[cDT$Barcode == barcode]
   p <- ggplot(mDT, aes(x=Total.Intensity.DAPI))+geom_bar(binwidth = 50000)+
-  facet_wrap(~Ligand, nrow=2)+
+  facet_wrap(~Well, nrow=2)+
     xlim(0,quantile(mDT$Total.Intensity.DAPI,probs=.98, na.rm=TRUE))+
     ggtitle(paste("Total DAPI Signal"))+
     ylab("Count")+xlab("Total Intensity DAPI")+
@@ -270,7 +267,7 @@ for (barcode in unique(cDT$Barcode)){
   mDT <- cDT[cDT$Barcode == barcode]
   p <- ggplot(mDT, aes_string(x=paste0("Total.Intensity.DAPI"),y=paste0("log2(",cmp,"Mean.Intensity.Alexa.647)"), colour="EdUPositive"))+geom_point(size = .4)+
       geom_rug(col=rgb(.5,0,0,alpha=.01))+
-  facet_wrap(~Ligand, nrow=2)+
+  facet_wrap(~Well, nrow=2)+
     xlim(0,quantile(mDT$Total.Intensity.DAPI,probs=.98, na.rm=TRUE))+
     ggtitle(paste("Cell Cycle",unique(mDT$Endpoint647), "Signal"))+
     ylab(paste("Well Normalized",unique(mDT$Endpoint647)))+xlab("")+
@@ -307,6 +304,13 @@ sDT <- merge(sDT,passedQAWells)
 setkey(sDT,Ligand)
 sDT <- sDT[!"HighSerum"]
 
+#Filtering of MEP dataset
+setkey(mepDT,ECMp)
+mepDT <-mepDT[!"fiducial"]
+mepDT <-mepDT[!"blank"]
+
+setkey(mepDT,Ligand)
+mepDT <- mepDT[!"HighSerum"]
 
 ```
 
@@ -316,18 +320,18 @@ sDT <- sDT[!"HighSerum"]
 
 ```{r Perimeter_Median_differences, echo=FALSE,fig.width=8, fig.height=4, eval=TRUE}
 
-calcGroupDiffs <- function(x,group,signal){
+calcGroupRatios <- function(x,group,signal){
   #browser()
   medianInGroup <- median(x[[signal]][x[[group]]], na.rm=TRUE)
   medianOutGroup <- median(x[[signal]][!x[[group]]], na.rm=TRUE)
-  return(medianInGroup-medianOutGroup)
+  return(medianInGroup/medianOutGroup)
 } 
 
 if(ss=="SS1"){
   
-cDT <- cDT[, MitoPerimeterDifference := calcGroupDiffs(.SD,group="Perimeter",signal="Cyto.Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
+cDT <- cDT[, MitoPerimeterRatio := calcGroupRatios(.SD,group="Perimeter",signal="Cyto.Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
 
-cDT <- cDT[, MitoSparseDifference := calcGroupDiffs(.SD,group="Sparse",signal="Cyto.Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
+cDT <- cDT[, MitoSparseRatio := calcGroupRatios(.SD,group="Sparse",signal="Cyto.Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
 
 setkey(cDT,MitoPerimeterDifference)
 MEP <- unique(cDT[,list(ECMp,Ligand,MitoPerimeterDifference,MitoSparseDifference,Barcode,Well, ArrayRow,ArrayColumn,SpotCellCount,Cyto.Mean.Intensity.Alexa.647.SpotNorm)])
@@ -351,15 +355,40 @@ p <- ggplot(cDT, aes(x=factor(Perimeter), y=log2(Cyto.Mean.Intensity.Alexa.647))
   
 } else if (ss=="SS2"){
 
-cDT <- cDT[, EdUPerimeterDifference := calcGroupDiffs(.SD,group="Perimeter",signal="Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
+cDT <- cDT[, EdUPerimeterRatio := calcGroupRatios(.SD,group="Perimeter",signal="Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
 
-cDT <- cDT[, EdUSparseDifference := calcGroupDiffs(.SD,group="Sparse",signal="Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
+cDT <- cDT[, EdUSparseRatio := calcGroupRatios(.SD,group="Sparse",signal="Mean.Intensity.Alexa.647.MedNorm"), by="Ligand,ECMp"]
 
-setkey(cDT,EdUPerimeterDifference)
-MEP <- unique(cDT[,list(ECMp,Ligand,EdUPerimeterDifference,EdUSparseDifference,Barcode,Well, ArrayRow,ArrayColumn,SpotCellCount,EdUPositivePercent)])
+#TODO debug here and get to a MEP level dataset
+setkey(cDT,EdUPerimeterRatio)
+MEP <- unique(cDT[,list(ECMp,Ligand,EdUPerimeterRatio,EdUSparseRatio,Barcode,Well, ArrayRow,ArrayColumn,SpotCellCount,EdUPositiveProportion)])
 
-p <- ggplot(cDT, aes(x=factor(Perimeter), y=log2(Mean.Intensity.Alexa.647.SpotNorm)))+geom_boxplot(notch=FALSE)+ylim(0,1)
+p <- ggplot(cDT, aes(x=factor(Perimeter), y=log2(Mean.Intensity.Alexa.647.SpotNorm)))+geom_boxplot(notch=FALSE)+
+  ylim(0,1)+
+  facet_wrap(~ECMp)
   suppressWarnings(print(p))
+  
+  p <- ggplot(cDT, aes(x=factor(Perimeter), y=log2(Mean.Intensity.Alexa.647.SpotNorm)))+geom_boxplot(notch=FALSE)+
+  ylim(0,1)+
+  facet_wrap(~Ligand)
+  suppressWarnings(print(p))
+  
+  p <- ggplot(cDT, aes(x=factor(Sparse), y=log2(Mean.Intensity.Alexa.647.SpotNorm)))+geom_boxplot(notch=FALSE)+
+  ylim(0,1)+
+  facet_wrap(~ECMp)
+  suppressWarnings(print(p))
+  
+  p <- ggplot(cDT, aes(x=factor(Sparse), y=log2(Mean.Intensity.Alexa.647.SpotNorm)))+geom_boxplot(notch=FALSE)+
+  ylim(0,1)+
+  facet_wrap(~Ligand)
+  suppressWarnings(print(p))
+  
+  
+    p <- ggplot(MEP, aes(x=EdUSparseRatio))+geom_histogram(binwidth=.01)
+  #ylim(0,1)+
+  #facet_wrap(~Ligand)
+  suppressWarnings(print(p))
+
 } else if(ss == "SS3"){
   
 } else stop(paste(ss, "is an invlalid value for the ss staining set parameter"))
@@ -394,3 +423,43 @@ for(ligand in unique(cDT$Ligand)[floor(nrLigands/2):nrLigands]){
   suppressWarnings(print(p))
 }
 ```
+
+\newpage
+
+##H3 Response
+
+The following plots look at the plate normalized responses of the H3 signal stratified by ligand, ECM protein and MEP.
+
+```{r H3_response, echo=FALSE}
+
+p <- ggplot(mepDT, aes(x = reorder(Ligand, Mean.Intensity.Alexa.488.MedNorm, FUN=median), y = Mean.Intensity.Alexa.488.MedNorm))+geom_boxplot()+
+  ggtitle(paste(unique(mepDT$Endpoint488),"Plate Normalized Ligand Response for",unique(mepDT$CellLine), "Cells"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+p <- ggplot(mepDT, aes(x = reorder(ECMpAnnotID, Mean.Intensity.Alexa.488.MedNorm, FUN=median), y = Mean.Intensity.Alexa.488.MedNorm))+geom_boxplot()+
+  ggtitle(paste(unique(mepDT$Endpoint488),"Plate Normalized ECM Protein Response for",unique(mepDT$CellLine), "Cells"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+p <- ggplot(mepDT, aes(x = Mean.Intensity.Alexa.488.MedNorm ))+geom_histogram(binwidth = .03)+
+  ggtitle(paste(unique(mepDT$Endpoint488),"Plate Normalized MEP  Response for",unique(mepDT$CellLine), "Cells"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+setkey(mepDT, Mean.Intensity.Alexa.488.MedNorm)
+
+```
+
+The following lists are the bottom and top 25 MEPS ordered by their normalized `r unique(mepDT$Endpoint488)` values. These responses were divided by the high serum responses, then the high serum responses were filtered from the dataset.
+
+Lowest 25 `r unique(mepDT$Endpoint488)` responses.  
+`r mepDT[,list(Ligand,ECMp,Mean.Intensity.Alexa.488.MedNorm)][1:25] `
+
+Highest 25 `r unique(mepDT$Endpoint488)` responses.  
+  `r mepDT[,list(Ligand,ECMp,Mean.Intensity.Alexa.488.MedNorm)][(nrow(mepDT)-25):nrow(mepDT)] `
+  
+  

@@ -1,0 +1,99 @@
+---
+title: "H3 Exploration"
+author: "Mark Dane"
+date: "July 10, 2015"
+output: pdf_document
+---
+---
+output: pdf_document
+---
+```{r, echo=FALSE}
+#Set the staining set to be analyzed
+#  ss <- "SS1"
+#  cmp <- "Cyto."
+ ss <- "SS2"
+ cmp <- ""
+```
+
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+library("ggplot2")
+library("data.table")
+library("MEMA")
+library("grid")
+
+mepDT <- fread(paste0("./",ss,"/Cell/Annotated Data/PC3_",ss,"_CellMepAnn.txt"))
+```
+
+
+```{r Filtering, echo=FALSE}
+
+#Filtering of MEP dataset
+setkey(mepDT,ECMp)
+mepDT <-mepDT[!"fiducial"]
+mepDT <-mepDT[!"blank"]
+
+setkey(mepDT,Ligand)
+mepDT <- mepDT[!"HighSerum"]
+
+```
+
+
+##H3 Response
+
+The following plots look at the plate normalized responses of the H3 signal stratified by ligand, ECM protein and MEP. These responses were divided by the high serum responses, then the high serum responses were filtered from the dataset.
+
+```{r H3_response, echo=FALSE}
+
+p <- ggplot(mepDT, aes(x = reorder(Ligand, Mean.Intensity.Alexa.488.MedNorm, FUN=median), y = Mean.Intensity.Alexa.488.MedNorm))+geom_boxplot()+
+  ggtitle(paste(unique(mepDT$Endpoint488),"Plate Normalized Ligand Response for",unique(mepDT$CellLine), "Cells"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+p <- ggplot(mepDT, aes(x = reorder(ECMpAnnotID, Mean.Intensity.Alexa.488.MedNorm, FUN=median), y = Mean.Intensity.Alexa.488.MedNorm))+geom_boxplot()+
+  ggtitle(paste(unique(mepDT$Endpoint488),"Plate Normalized ECM Protein Response for",unique(mepDT$CellLine), "Cells"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+p <- ggplot(mepDT, aes(x = Mean.Intensity.Alexa.488.MedNorm ))+geom_histogram(binwidth = .03)+
+  ggtitle(paste(unique(mepDT$Endpoint488),"Plate Normalized MEP  Response for",unique(mepDT$CellLine), "Cells"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+```
+
+The following lists are the bottom and top 25 MEPS ordered by their normalized `r unique(mepDT$Endpoint488)` values. 
+  
+```{r, echo=FALSE}
+setkey(mepDT, Mean.Intensity.Alexa.488.MedNorm)
+print(mepDT[1:25,list(Ligand,ECMp,Mean.Intensity.Alexa.488.MedNorm)])
+
+print(mepDT[(nrow(mepDT)-25):nrow(mepDT),list(Ligand,ECMp,Mean.Intensity.Alexa.488.MedNorm)])
+
+```
+\newpage
+
+##Spot Cell Count
+The following plots of Spot Cell Count show that some of the extreme H3 readings come from low cell count spots. [This section still needs to be vetted as the values look lower than I expect]
+
+
+```{r, echo=FALSE}
+
+p <- ggplot(mepDT, aes(x = reorder(ECMpAnnotID, SpotCellCount, FUN=median), y = SpotCellCount))+geom_boxplot()+
+  ggtitle(paste(unique(mepDT$Endpoint488),"Median Spot Cell Count by ECM Protein for",unique(mepDT$CellLine), "Cells"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+
+p <- ggplot(mepDT, aes(x = reorder(Ligand, SpotCellCount, FUN=median), y = SpotCellCount))+geom_boxplot()+
+  ggtitle(paste(unique(mepDT$Endpoint488),"Median Spot Cell Count by Ligand for",unique(mepDT$CellLine), "Cells"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+
+```
+
