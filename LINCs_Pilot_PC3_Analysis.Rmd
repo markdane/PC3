@@ -4,6 +4,7 @@ output: pdf_document
 ```{r, echo=FALSE}
 #Set the staining set to be analyzed (SS1|SS2|SS3)
  ss <- "SS2"
+ 
 ```
 ---
 title: "MEP-LINCs `r ss` Pilot Analysis"
