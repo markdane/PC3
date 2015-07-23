@@ -222,9 +222,25 @@ setnames(cDT,endpointNames,paste0("Endpoint",endpointWL))
 ```{r, echo=FALSE, message=FALSE, warnings=FALSE, eval=TRUE}
 
 #Select the columns and order for saving in the cell-level annotated data file
-cDT <- cDT[,list(Barcode,Well,Spot,ArrayRow,ArrayColumn,Block,Row,Column,ObjectID,X,Y,Z,XLocal,YLocal,RadialPosition,Theta,TotalIntensityDAPI,MeanIntensityDAPI,MeanIntensityAlexa488,MeanIntensityAlexa555,MeanIntensityAlexa647,LocationMeanIntensityDAPI,LocationMeanIntensityAlexa488,LocationMeanIntensityAlexa555,LocationMeanIntensityAlexa647,Area,ElongationFactor,CellLine,EndpointDAPI,Endpoint488,Endpoint555,Endpoint647,LigandAnnotID,Ligand,ECMpAnnotID,ECMp,PrintOrder,SpotCellCount,LoessSCC,MeanIntensityDAPIMedNorm,MeanIntensityAlexa488MedNorm,MeanIntensityAlexa555MedNorm,MeanIntensityAlexa647MedNorm,SpotCellCountMedNorm,MeanIntensityAlexa488SpotNorm,MeanIntensityAlexa555SpotNorm,MeanIntensityAlexa647SpotNorm,Density,Wedge,Sparse,OuterCell,Perimeter,EdUPositive,EdUPositiveProportion)]
+coreLevel1DataColumns <- c("X","Y","Z","XLocal","YLocal","RadialPosition","Theta","TotalIntensityDAPI","MeanIntensityDAPI","MeanIntensityAlexa488","MeanIntensityAlexa555","MeanIntensityAlexa647","Area","ElongationFactor")
 
-write.table(cDT, paste0(ss,"/Cell/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","CellAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+coreLevel2DataColumns<- c("X","Y","Z","XLocal","YLocal","RadialPosition","Theta","SpotCellCount","LoessSCC","MeanIntensityDAPIMedNorm","MeanIntensityAlexa488MedNorm","MeanIntensityAlexa555MedNorm","MeanIntensityAlexa647MedNorm","SpotCellCountMedNorm","MeanIntensityAlexa488SpotNorm","MeanIntensityAlexa555SpotNorm","MeanIntensityAlexa647SpotNorm","Density","Wedge","Sparse","OuterCell","Perimeter")
+
+coreMetadataColumns <- c("Barcode","Well","Spot","ArrayRow","ArrayColumn","Block","Row","Column","ObjectID","LocationMeanIntensityDAPI","LocationMeanIntensityAlexa488","LocationMeanIntensityAlexa555","LocationMeanIntensityAlexa647","CellLine","EndpointDAPI","Endpoint488","Endpoint555","Endpoint647","LigandAnnotID","Ligand","ECMpAnnotID","ECMp","PrintOrder")
+
+
+if (ss == "SS1") {
+  cDTLevel1 <- cDT[,c(coreMetadataColumns, coreLevel1DataColumns), with=FALSE]
+  cDTLevel2 <- cDT[,c(coreMetadataColumns, coreLevel2DataColumns), with=FALSE]
+  
+} else if(ss=="SS2"){
+  cDTLevel1 <- cDT[,c(coreMetadataColumns, coreLevel1DataColumns), with=FALSE]
+  cDTLevel2 <- cDT[,c(coreMetadataColumns, coreLevel2DataColumns,"EdUPositive"), with=FALSE]
+  
+}
+write.table(cDTLevel1, paste0(ss,"/Cell/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level1.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(cDTLevel2, paste0(ss,"/Cell/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level2.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+
 ```
 
 ```{r SpotLevelData, echo=FALSE}
@@ -260,7 +276,7 @@ lthresh <- 0.6
 
 ```{r, echo=FALSE, eval=TRUE}
   
-write.table(slDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","CellSpotAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(slDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level3.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 ```
 
@@ -281,6 +297,6 @@ write.table(slDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss
 
 ```{r, echo=FALSE, eval=TRUE}
   
-write.table(mepDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","CellMepAnn.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(mepDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level4.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 ```
