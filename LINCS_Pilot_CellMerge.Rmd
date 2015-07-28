@@ -4,54 +4,36 @@ author: "Mark Dane"
 date: "`r Sys.Date()`"
 output: pdf_document
 ---
-##Summary
-This script prepares cell-level data and metadata for the LINCs Analysis Pipeline. 
-
-In the code, the variable ss determines which staining set (SS1, SS2 or SS3) to merge. All .txt data files in the ./Cell/Raw Data folder will be merged
-with the well (xlsx) and log (XML) data from the ./Metadata folder.
-
-This merging assumes that the actual, physical B row wells (B01-B04) have been printed upside-down. That is, rotated 180 degrees resulting in the spot 1,1 being in the lower right corner instead of the upper left corner. The metadata is matched to the actual printed orientation.
-
-The data is filtered to remove objects with area less than 1000 pixels.
-
-In addition to merging the metadata with the cell-level data, several types of derived parameters are added. These include:
-
-Cell Density based on the number of nuclear centers within a radius around each nucleus.
-Normalized intensity values calculated by dividing each intensity value by the median of the corresponding intensity value in the control well of the same plate. 
-
-Some parameters are clustered or gated into two or more classifications. For example, cells are classified as EdU+ or EdU-, 2N and less or 4N and more DNA.
-Each cell does not have every derived parameter as each staining set has unique endpoints.
-
-The data is summarized by the median of the parameter at each spot. Then additional derived values are added to this spot-level dataset:
-
-The Spot Cell Count for the number of cells at each spot
-Loess models of the spot cell count that capture regional information about cell seeding.
-
-The staining sets are summarized by the medians of their normalized replicate values then combined to the MEP-level within each cell line.
-
 
 ```{r setup, echo=FALSE, message=FALSE}
-library("limma")
-library("MEMA")
-library("data.table")
-library("parallel")
-#library("grid")
+library("limma")#read GAL file and strsplit2
+library("MEMA")#merge, annotate and normalize functions
+library("data.table")#fast file reads, data merges and subsetting
+library("parallel")#use multiple cores for faster processing
 
-
-
- #Select a staining set
+#Select a staining set
 ss <- "SS2"
 densityThresh <- 0.4
 outerThresh <- 0.5
 
+#Filter out debris based on nuclear area
+nuclearAreaThresh <- 1000
+
 ```
 
+
+##Summary
+This script prepares cell-level data and metadata for the Pilot MEP LINCs Analysis Pipeline. 
+
+In the code, the variable ss determines which staining set (SS1, SS2 or SS3) to merge and the variable cellLine determines the cell line. All .txt data files in the "./Raw Data" folder will be merged with the well (xlsx) and log (XML) data from the "./Metadata" folder.
+
+The merging assumes that the actual, physical B row wells (B01-B04) have been printed upside-down. That is, rotated 180 degrees resulting in the spot 1, 1 being in the lower right corner instead of the upper left corner. The metadata is matched to the actual printed orientation.
 
 ```{r Read and clean spotmetadata, echo=FALSE}
 
 #Read in the spot metadata from the gal file
 smd <- readSpotMetadata(paste0("./",ss,"/Metadata/20150515_LI8X001_v1.gal"))
-#Relabel the column name to the ECMpAnnotID
+#Relabel the column Name to ECMpAnnotID
 setnames(smd, "Name", "ECMpAnnotID")
 
 #Make a short name for display of ECMpAnnotID
@@ -71,14 +53,20 @@ BRowMetadata <- data.table(spotMetadata180,Well=rep(c("B01", "B02","B03","B04"),
 
 ```
 
+The well metadata describes the cell line, ligands and staining endpoints that are all added on a per well basis. There is one mutlisheet .xlsx file for each plate. Each filename is the plate's barcode.
+
+The raw data files are stored in a "Raw Data" folder inside a folder for each staining set.There is a main raw data file for each well. Staining sets with cytoplasmic data include raw data files with the word "Cyto" inplace of the word "Main".
+
+The raw data from all wells in all plates in the dataset are read in and merged with their spot and well metadata. The number of nuclei at each spot are counted and a loess model of the spot cell count is added. Then all intensity values are normalized through dividing them by the median intensity value of the control well in the same plate.
+Next, the data is filtered to remove objects with a nuclear area less than `r nuclearAreaThresh` pixels.
 
 ```{r ScanR merge_normalize and QA, echo=FALSE}
 #The next steps are to bring in the well metadata, the print order and the ScanR data
 
-cellDataFiles <- dir(paste0(ss,"/Cell/Raw Data"),full.names = TRUE)
+cellDataFiles <- dir(paste0(ss,"/Raw Data"),full.names = TRUE)
 splits <- strsplit2(strsplit2(cellDataFiles,split = "_")[,1],"/")
 barcodes <- unique(splits[,ncol(splits)])
-expDTList <- lapply(barcodes, function(barcode){
+expDTList <- mclapply(barcodes, function(barcode){
   #browser()
   plateDataFiles <- grep(barcode,cellDataFiles,value = TRUE)
   wells <- unique(strsplit2(split = "_",plateDataFiles)[,2])
@@ -146,6 +134,8 @@ expDTList <- lapply(barcodes, function(barcode){
   #Add the loess model of the SpotCellCount on a per well basis
   pcDT <- pcDT[,LoessSCC := loessModel(.SD,value="SpotCellCount",span=.1), by="Barcode,Well"]
   
+  #Add a total DAPI column
+  pcDT$TotalIntensityDAPI <- pcDT$Area*pcDT$MeanIntensityDAPI
   #If there is a highSerum well in the plate, use it for normalization
   if(sum(pcDT$Ligand=="HighSerum")){
     intensityNames <- grep("^MeanIntensity|^TotalIntensity",colnames(pcDT), value=TRUE)
@@ -157,9 +147,6 @@ expDTList <- lapply(barcodes, function(barcode){
     pcDT <- pcDT[,SpotCellCountMedNorm := normWellsWithinPlate(.SD, value="SpotCellCount", baseECM = ".*",baseGF = "HighSerum"), by="Barcode"]
   }
   
-  
-  #Filter out debris based on nuclear area
-  nuclearAreaThresh <- 1000
   pcDT <- pcDT[pcDT$Area >nuclearAreaThresh,]
   
   return(pcDT)
@@ -169,9 +156,20 @@ cDT <- rbindlist(expDTList, fill = TRUE)
 
 ```
 
+
+
+After merging the metadata with the cell-level data, several types of derived parameters are added. These include:
+
+The origin of coordinate system is placed at the median X and Y of each spot and the local cartesian and polar coordinates are added to the dataset.
+
+Each spot is divided into wedge-shaped bins and the wedge bin value for each cell is added to the dataset. The density around each cell is calculated from the number of nuclear centers within a radius around each nuclei. The Density value is thresholded to classify each cell as Sparse or not.The distance from the local origin is used to classify each cell as an OuterCell or not. The Sparse, OutCell and Wedge classifications are used to classify each cell as a Perimeter cell or not. 
+
+For staining set 2, each cell is classified as EdU+ or EdU-. The threshold for EdU+ is based on kmeans threshold of the mean EdU intensity from the control well of each plate.
+
+The intensity values are normalized at each spot so that spot-level variations can be analyzed.
+
 ```{r, echo=FALSE, message=FALSE, warnings=FALSE}
 
-cDT$TotalIntensityDAPI <- cDT$Area*cDT$MeanIntensityDAPI
 
 #Add the local cartesian and polar coordinates, Wedge, Density and classifications for Sparse, OuterCell and Perimeter
 setkey(cDT,Barcode,Well,Spot,ObjectID)
@@ -191,8 +189,6 @@ if(ss %in% c("SS1", "SS3")){
   #Calculate the EdU Positive Percent at each spot
   cDT <- cDT[,EdUPositiveProportion := sum(EdUPositive)/length(ObjectID),by="Barcode,Well,Spot"]
 } else stop("Invalid ss parameter")
-
-#TODO: Debug the addition of EndpointDAPI
 
 # Eliminate Variations in the Endpoint metadata
 endpointNames <- grep("End",colnames(cDT), value=TRUE)
@@ -219,12 +215,13 @@ setnames(cDT,endpointNames,paste0("Endpoint",endpointWL))
 
 ```
 
+The cell level raw data and metadata is saved as Level 1 data. The plate and spot normalized values and the metadata is saved as Level 2 data.
 ```{r, echo=FALSE, message=FALSE, warnings=FALSE, eval=TRUE}
 
 #Select the columns and order for saving in the cell-level annotated data file
 coreLevel1DataColumns <- c("X","Y","Z","XLocal","YLocal","RadialPosition","Theta","TotalIntensityDAPI","MeanIntensityDAPI","MeanIntensityAlexa488","MeanIntensityAlexa555","MeanIntensityAlexa647","Area","ElongationFactor")
 
-coreLevel2DataColumns<- c("X","Y","Z","XLocal","YLocal","RadialPosition","Theta","SpotCellCount","LoessSCC","MeanIntensityDAPIMedNorm","MeanIntensityAlexa488MedNorm","MeanIntensityAlexa555MedNorm","MeanIntensityAlexa647MedNorm","SpotCellCountMedNorm","MeanIntensityAlexa488SpotNorm","MeanIntensityAlexa555SpotNorm","MeanIntensityAlexa647SpotNorm","Density","Wedge","Sparse","OuterCell","Perimeter")
+coreLevel2DataColumns<- c("X","Y","Z","XLocal","YLocal","RadialPosition","Theta","SpotCellCount","LoessSCC","TotalIntensityDAPIMedNorm","MeanIntensityDAPIMedNorm","MeanIntensityAlexa488MedNorm","MeanIntensityAlexa555MedNorm","MeanIntensityAlexa647MedNorm","SpotCellCountMedNorm","MeanIntensityAlexa488SpotNorm","MeanIntensityAlexa555SpotNorm","MeanIntensityAlexa647SpotNorm","Density","Wedge","Sparse","OuterCell","Perimeter")
 
 coreMetadataColumns <- c("Barcode","Well","Spot","ArrayRow","ArrayColumn","Block","Row","Column","ObjectID","LocationMeanIntensityDAPI","LocationMeanIntensityAlexa488","LocationMeanIntensityAlexa555","LocationMeanIntensityAlexa647","CellLine","EndpointDAPI","Endpoint488","Endpoint555","Endpoint647","LigandAnnotID","Ligand","ECMpAnnotID","ECMp","PrintOrder")
 
@@ -238,12 +235,13 @@ if (ss == "SS1") {
   cDTLevel2 <- cDT[,c(coreMetadataColumns, coreLevel2DataColumns,"EdUPositive"), with=FALSE]
   
 }
-write.table(cDTLevel1, paste0(ss,"/Cell/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level1.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
-write.table(cDTLevel2, paste0(ss,"/Cell/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level2.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(cDTLevel1, paste0(ss,"/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level1.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(cDTLevel2, paste0(ss,"/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level2.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 ```
 
-```{r SpotLevelData, echo=FALSE}
+The cell-level data is median summarized to the spot level and coefficients of variations on the replicates are calculated. The spot level data, CVs and metadata are saved as Level 3 data.
+```{r Level3, echo=FALSE}
 
 #Summarize cell data to spot level (sl) by taking the medians of the parameters
 parameterNames<-grep(pattern="(^Total|^Mean|Elongation|Area|SpotCellCount|EdUPositiveProportion|RadialPosition|Population|Loess|Density|Z|Barcode|^Spot$|^Well$)",x=names(cDT),value=TRUE)
@@ -276,10 +274,11 @@ lthresh <- 0.6
 
 ```{r, echo=FALSE, eval=TRUE}
   
-write.table(slDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level3.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(slDT, paste0(ss,"/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level3.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 ```
 
+The spot level data is median summarized to the replicate level is stored as Level 4 data and metadata.
 ```{r MEPLevelData, echo=FALSE}
   
   
@@ -297,6 +296,6 @@ write.table(slDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss
 
 ```{r, echo=FALSE, eval=TRUE}
   
-write.table(mepDT, paste0(ss,"/Cell/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level4.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(mepDT, paste0(ss,"/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level4.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 ```
