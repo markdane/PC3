@@ -25,6 +25,7 @@ library("ggplot2")
 library("data.table")
 library("MEMA")
 library("grid")
+library(knitr)
 
 
 create8WellPseudoImage <- function(DT, pr, prDisplay){
@@ -37,7 +38,7 @@ create8WellPseudoImage <- function(DT, pr, prDisplay){
     scale_colour_gradient(low = "white", high = "red")+
     guides(colour = guide_legend(prDisplay, keywidth = .5, keyheight = .5))+
     ggtitle(paste("\n\n",prDisplay,"for",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
-    xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.8)),axis.title.x = element_text(size=rel(.5)),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.4)),legend.title=element_text(size = rel(.3)))+
     facet_wrap(~Well, ncol=4)
 }
 
@@ -49,7 +50,7 @@ create8WellPseudoImage <- function(DT, pr, prDisplay){
     scale_x_continuous(limits = quantile(DT[[pr]],probs = c(0,upperProb),na.rm=TRUE))+
     ggtitle(paste("\n\n",prDisplay,"in",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
     xlab(prDisplay)+
-        theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+        theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
     facet_wrap(~Well, ncol=ncol)
 }
 
@@ -65,8 +66,10 @@ wellQAThresh <- .6
 
 #TODO: Read this from Level 3 data
 lthresh <- 0.6
-
-
+#workaround 'bug?' in fread
+l2$Sparse <- as.logical(gsub(" ","",l2$Sparse))
+l2$OuterCell <- as.logical(gsub(" ","",l2$OuterCell))
+l2$Perimeter <- as.logical(gsub(" ","",l2$Perimeter))
 
 ```
 ---
@@ -76,15 +79,24 @@ output: pdf_document
 ---
 
 ##Summary
-The MEP-LINCs `r cellLine` `r ss` datasets include four levels of high content imaging data from 2576 Microenvironment Perturbations (MEPs). 
+The MEP-LINCs `r cellLine` `r ss` datasets include four levels of high content imaging data from on Microenvironment Microarrays (MEMAs). After QA filtering, there are 1748 Microenvironment Perturbations (MEPs) that are pairwise combinations of 46 printed ECM proteins and 38 ligands or growth factors. MEPS that have extreme proliferation, cell count or H3K9me3 signals are identified. All quantitated data, merging and analysis code is stored at Synapse and GitHub and is available at https://www.synapse.org/#!Synapse:syn4624330.    
 
 ##Introduction
-Images of each spot were gathered on an Olympus ScanR automated microscope. This staining set includes, DAPI, `r unique(l3$Endpoint488)` (488nm), `r unique(l3$Endpoint555)` (555nm) and `r unique(l3$Endpoint647)` (647nm). The ScanR data comes from the nucleus as defined by the DAPI staining and a cytoplasmic annulus of 10 pixels that surrounds the nucleus.
+The LINCs Pilot PC3 SS2 experiment was performed with PC3 cells grown in eight 8-well plates. The SS2 staining set includes, DAPI, `r unique(l3$Endpoint488)` (488nm), `r unique(l3$Endpoint555)` (555nm) and `r unique(l3$Endpoint647)` (647nm). Four color images of the cells at each spot were gathered on an Olympus ScanR automated microscope. All data for this staining set comes from the nuclei as defined by the DAPI staining.
+
+Intensity, position and a limited set of morphology data are gatherd for each cell, merged with the experiment metadata, normalized and aggregated. The dataset is organized to the four LINCs imaging categories as follows:
+
+Level 1 - Raw data  
+Level 2 - Normalized data  
+Level 3 - Normalized data aggregated to the spot level  
+Level 4 - Normalized data aggregated to the replicate (MEP) level  
+
+The data merging and analysis is done in R using open source software. 
 
 \newpage
 
 ##MEMA Layout
-The LINCs MEMA has 46 ECM proteins spotted in 35 rows and 20 columns. The proteins are randomly assigned to the top 30 rows of spots. Rows 31-35 are replicates of rows 1-5. The upper left and bottom right corners are image fiducials in the 488nm channel and there are four blank spots for checking orientation in all channels.   
+All MEMAs in the experiment are in separate wells and have the same design of 46 ECM proteins spotted in 35 rows and 20 columns. The proteins are randomly assigned to spots in the top 30 rows. Rows 31-35 are replicates of rows 1-5. The upper left and bottom right corners of each MEMA are image fiducials in the 488nm channel and there are four blank spots for checking orientation in all channels.   
 
 ```{r Content Layout,echo=FALSE, message=FALSE, warnings=FALSE, fig.width=6}
 
@@ -107,7 +119,7 @@ print(p)
 
 
 ##Replicate Count
-The LINCs MEMA has an average of 15 replicates with a range from 13 to 19.  
+The MEMAs have an average of 15 replicates with a range from 13 to 19.  
 
 ```{r Layout Replicate Count,echo=FALSE, message=FALSE, warnings=FALSE, fig.width=6.5, fig.height=3}
 #Remove the fiducial entries
@@ -116,7 +128,7 @@ DT <- DT[!"fiducial"]
 
 p <- ggplot(DT, aes(x=ECMp))+
   geom_bar(width=.8)+geom_hline(yintercept = mean(table(DT$ECMp)), colour="blue")+
-  ggtitle(" \n\nCount of Replicate ECM Proteins In LINCs MEMA")+
+  ggtitle(" \n\nCount of Replicate ECM Proteins In Each MEMA")+
   xlab("Printed ECM Protein")+ylab("Number of spots")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)),axis.title.x = element_text(size=rel(.8)),axis.title.y = element_text(size=rel(.8)),plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.5)))
 
@@ -127,7 +139,9 @@ print(p)
 \newpage
 
 ##QA Scoring of the dataset
-Each well is scored for even cell seeding according the count of the DAPI-stained nuclei. A detailed explanation of the QA method is in the supplemental material. In brief, the level 2 and 3 data have cell counts at the spot level and locally-averaged cell counts at the neighborhood level. Both of these parameters are used to score the wells and filter the dataset. QA Scores range from 0 to 1 and represent the proportion of the spots that have at least one cell and are not in low cell count neighborhoods.
+Each well is scored for even cell seeding according to the count of the DAPI-stained nuclei. A detailed explanation of the QA method is in the supplemental material. In brief, the level 2 and 3 data have cell counts at the spot level and locally-averaged cell counts at the neighborhood level. Both of these parameters are used to score the wells and filter the dataset. QA Scores range from 0 to 1 and represent the proportion of the spots that have at least one cell and are not in low cell count neighborhoods.
+
+The following plots are pseudoimages each MEMA's spot cell count and a histogram of the loess model used for QA scoring. 
 
 
 ```{r Heatmaps_QAScores, echo=FALSE, fig.width=3.7,fig.height=4, eval=TRUE}
@@ -140,26 +154,17 @@ for (barcode in barcodes){
   
   p <- create8WellPseudoImage(DT, pr = "SpotCellCount",prDisplay = "Spot Cell Count")
   suppressWarnings(print(p))
-  
-  p <- create8WellPseudoImage(DT, pr = "LoessSCC",prDisplay = "Loess Spot Cell Count")
-    suppressWarnings(print(p))
-    
-  p <- create8WellHistograms(DT,pr = "SpotCellCount", prDisplay = "Spot Cell Count")
-      suppressWarnings(print(p))
 
-  
   wellScores <- unique(DT[,list(Well, QAScore=sprintf("%.2f",QAScore))])
 
   p <- ggplot(DT, aes(x=LoessSCC))+
     geom_histogram(binwidth=.04)+
     geom_vline(xintercept=lthresh, colour="blue")+
     geom_text(data=wellScores, aes(label=paste0("QA\n",QAScore)), x = 1.5, y = 40, size = rel(3), colour="red")+
-    ggtitle(paste("\n\n","QA on Loess Model of Spot Cell Count for",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Spot Cell Count")+xlim(0,3)+
-    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
+    ggtitle(paste("\n\n\n\n","QA on Loess Model of Spot Cell Count for",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Normalized Spot Cell Count")+xlim(0,3)+
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), axis.title.x = element_text( size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), axis.title.y = element_text( size=rel(.5)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))+
     facet_wrap(~Well, ncol=4)
   suppressWarnings(print(p))
-    
-  cat(sprintf("Mean QA Score for %9s = %.2f \n",barcode,mean(DT$QAScore)))
 
 }
 
@@ -188,7 +193,7 @@ setkey(l2F,Ligand)
 l2F <- l2F[!"HighSerum"]
 setkey(l2F,ECMp)
 l2F <- l2F[!"fiducial"]
-l2F <- l2F[,EdUSparseRatio := calcGroupRatios(.SD,group="Sparse", signal="MeanIntensityAlexa647MedNorm"), by="Barcode,Well,Spot"]
+l2F <- l2F[,EdUSparseRatio := calcGroupRatios(.SD, group="Sparse", signal="MeanIntensityAlexa647MedNorm"), by="Barcode,Well,Spot"]
 
 #Create a dataset of spots with greater than 20 cells
 l2FSCC <- l2F[l2F$SpotCellCount >= 20]
@@ -198,8 +203,8 @@ setkey(l3F,Ligand)
 l3F <- l3F[!"HighSerum"]
 setkey(l3F,ECMp)
 l3F <- l3F[!"fiducial"]
-#Add a count of replicates
-l3F <- l3F[,ReplicateCount := .N,by="LigandAnnotID,ECMpAnnotID"]
+
+#Add a EdU Sparse Ratio to the level 3 dataset
 ESR <- l2F[,list(EdUSparseRatio = median(EdUSparseRatio, na.rm=TRUE)), by="Barcode,Well,Spot"]
 l3F <- merge(l3F,ESR,by=c("Barcode","Well","Spot"))
 
@@ -236,9 +241,9 @@ l4F$H3MedNormRobustZ <- (l4F$MeanIntensityAlexa488MedNorm-H3Median)/H3mad
 \newpage
 
 ##Filtering
-Wells with QA scores below `r wellQAThresh ` and the HighSerum control wells are removed from further analysis. After filtering on the well QA score there are `r length(unique(l4F$Ligand))` ligands in the dataset. 
+Wells with QA scores below `r wellQAThresh ` and the HighSerum control wells are removed from further analysis of the dataset. After filtering on the well QA score there are `r length(unique(l4F$LigandAnnotID))` ligands in the dataset. 
 
-After filtering, the replicate counts are as shown below. A low number of replicates represents MEPs that do not support cells surviving the assay. Some analyses will want to split the dataset on the number of replicates to pursue different biological questions. The analyses in this report split the dataset at six replicates.
+Each spot represents a MEP that is a pairwise combination of the ECM protein printed at a  spot and the ligand in the solution of the well. The number of replicate MEPs after removing low-quality wells are shown below.
 
 ```{r FilteredReplicateCount,echo=FALSE, message=FALSE, warnings=FALSE, fig.width=6.5, fig.height=3}
 
@@ -262,31 +267,10 @@ print(p)
 
 \newpage
 
-##Spot Cell Count Analysis
-
-The filtered and normalized spot cell count of each type of MEP is shown below. The blue lines show +/-2 Robust Z Score positions. 
-
-```{r SCCRobustZScores, echo=FALSE, fig.width=8, fig.height=5, eval=TRUE}
-
-p <- ggplot(l4F, aes(x=SpotCellCountMedNormRobustZ))+geom_bar(binwidth = .1)+
-  geom_vline(xintercept = c(-2,2), colour = "blue")+
-  ggtitle(paste("\n\n","MEP Spot Cell Count Robust Z Scores Distribution"))+
-  ylab("Count")+xlab("Spot Cell Count Robust Z Scores")+
-  theme(strip.text = element_text(size = 5))
-suppressWarnings(print(p))
-
-setkey(l4F, SpotCellCountMedNormRobustZ)
-print(l4F[l4F$SpotCellCountMedNormRobustZ >=2| 
-            l4F$SpotCellCountMedNormRobustZ <=-2, list(Ligand,ECMp,SpotCellCountMedNormRobustZ, SpotCellCount)],nrows = Inf)
-
-```
-
-\newpage
-
 ##EdU-based Proliferation
-Proliferation can be measured by the proportion of cells in S Phase during the last hour of the assay. The plot below shows the distribution of the proportion of EdU positive cells that are non-zero stratified by MEP. The blue line shows an EdU positive proportion of 0.05. The dataset has also been filtered to exclude MEPS with five or fewer replicates.
+Proliferation can be measured as the proportion of cells in S Phase by introducing EdU during the last hour of the assay. The plot below shows the distribution of the proportion of EdU positive cells that are non-zero stratified by MEP. The blue line shows an EdU positive proportion of 0.05. The proliferation of the MEPs is also shown by ligand and ECM protein. A listing of the MEPs with proliferation proportions above 0.05 is in the supplemental material. The dataset for these analyses has been filtered for MEPS  with at least six replicates.
 
-```{r EPPRanks, echo=FALSE, fig.width=8, fig.height=5, eval=TRUE}
+```{r EPPRanks, echo=FALSE, fig.width=8, fig.height=3.5, eval=TRUE}
 DT <- l4F[l4F$EdUPositiveProportion > 0 & l4F$ReplicateCount > 5]
 p <- ggplot(DT, aes(x=EdUPositiveProportion))+geom_bar(binwidth = .001)+
   geom_vline(xintercept = 0.05, colour = "blue")+
@@ -295,59 +279,95 @@ p <- ggplot(DT, aes(x=EdUPositiveProportion))+geom_bar(binwidth = .001)+
   theme(strip.text = element_text(size = 5))
 suppressWarnings(print(p))
 
-setkey(DT, EdUPositiveProportion)
-print(DT[DT$EdUPositiveProportion >= 0.05, list(Ligand,ECMp,EdUPositiveProportion)],nrows = Inf)
+```
+
+```{r EdU_response, fig.width=8, fig.height=3.5, echo=FALSE}
+
+DT <- l4F[l4F$EdUPositiveProportion > 0 & l4F$ReplicateCount > 5]
+p <- ggplot(DT, aes(x = reorder(Ligand, EdUPositiveProportion, FUN=median), y = EdUPositiveProportion))+geom_boxplot()+
+  ggtitle(paste("\n\nMEP  Non-Zero Proliferation (EdU) by Ligand"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+p <- ggplot(DT, aes(x = reorder(ECMpAnnotID, EdUPositiveProportion, FUN=median), y = EdUPositiveProportion))+geom_boxplot()+
+  ggtitle(paste("\n\nMEP  Non-Zero Proliferation (EdU) by ECM Protein"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
 
 ```
-  
+
+
+\newpage
+
+##Spot Cell Count Analysis
+The spot cell count analysis uses robust Z scores to identify MEPs with extreme population sizes. First, the count of cells at each spot is normalized by dividing it by the median cell count of all spots in the same plate's high serum well.  The normalized spot cell counts are then summarized by the median of their replicates. The median and mad of the distribution of normalized and summarized values are used to convert to robust Z scores and are shown below. The blue lines at +/- 2 show thresholds for selecting MEPs of interest. Below the distribtion plot are plots with Z scores stratified by ligand and ECM protein. A listing of the MEPs outside of the blue lines is in the supplemental material.
+
+```{r SCCRobustZScores, echo=FALSE, fig.width=8, fig.height=3.5, eval=TRUE}
+
+p <- ggplot(l4F, aes(x=SpotCellCountMedNormRobustZ))+geom_bar(binwidth = .1)+
+  geom_vline(xintercept = c(-2,2), colour = "blue")+
+  ggtitle(paste("\n\n","MEP Spot Cell Count Robust Z Scores Distribution"))+
+  ylab("Count")+xlab("Spot Cell Count Robust Z Scores")+
+  theme(strip.text = element_text(size = 5))
+suppressWarnings(print(p))
+
+```
+
+
+```{r SCC_response, fig.width=8, fig.height=3.5, echo=FALSE}
+
+p <- ggplot(l4F, aes(x = reorder(Ligand, SpotCellCountMedNormRobustZ, FUN=median), y = SpotCellCountMedNormRobustZ))+geom_boxplot()+
+  ggtitle(paste("\n\nMEP  Spot Cell Count Robust Z Scores by Ligand"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+p <- ggplot(l4F, aes(x = reorder(ECMpAnnotID, SpotCellCountMedNormRobustZ, FUN=median), y = SpotCellCountMedNormRobustZ))+geom_boxplot()+
+  ggtitle(paste("\n\nMEP Spot Cell Count Robust Z Scores by ECM Protein"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+```
+
 
 \newpage
 
 ##`r unique(l4F$Endpoint488)` Response
 
-The following plots look at the plate normalized responses of the `r unique(l4F$Endpoint488)` signal stratified by ligand, ECM protein and MEP. This data has been filtered to exclude MEPs with five or fewer replicates.
+The following plots look at the plate normalized responses of the `r unique(l4F$Endpoint488)` signal stratified by ligand, ECM protein and MEP. The distribution of the Z scores is shown with blue lines highlighting the +/-3 robust z score positions. The MEPs outside of the blue lines are listed in the supplemental material.
 
-
-```{r 488_response, echo=FALSE}
+```{r H3RobustZScores, echo=FALSE, fig.width=8, fig.height=3, eval=TRUE}
 
 DT <- l4F[l4F$ReplicateCount > 5]
-p <- ggplot(DT, aes(x = reorder(Ligand, MeanIntensityAlexa488MedNorm, FUN=median), y = MeanIntensityAlexa488MedNorm))+geom_boxplot()+
-  ggtitle(paste("\n\n",unique(DT$Endpoint488),"Plate Normalized Ligand Response for",unique(DT$CellLine), "Cells"))+
-  xlab("")+ylab("")+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
-suppressWarnings(print(p))
-
-p <- ggplot(DT, aes(x = reorder(ECMpAnnotID, MeanIntensityAlexa488MedNorm, FUN=median), y = MeanIntensityAlexa488MedNorm))+geom_boxplot()+
-  ggtitle(paste("\n\n",unique(DT$Endpoint488),"Plate Normalized ECM Protein Response for",unique(DT$CellLine), "Cells"))+
-  xlab("")+ylab("")+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
-suppressWarnings(print(p))
-
-```
-
-The Robust Z Scores for the `r unique(DT$Endpoint488)` values are shown below with blue lines highlighting the +/-3 Robust Z Score positions.
-
-```{r H3RobustZScores, echo=FALSE, fig.width=8, fig.height=5, eval=TRUE}
-
 p <- ggplot(DT, aes(x=H3MedNormRobustZ))+geom_bar(binwidth = .1)+
   geom_vline(xintercept = c(-3,3), colour = "blue")+
   ggtitle(paste("\n\nMEP H3 Robust Z Scores Distribution"))+
-  ylab("Count")+xlab("H3 Robust Z Scores")+
-  theme(strip.text = element_text(size = 5), axis.text.x = element_blank(),
-        axis.ticks.x = element_blank())
+  ylab("Count")+xlab("Z Score")+
+  theme(strip.text = element_text(size = 5))
 suppressWarnings(print(p))
-```
-
-
-The following lists are the MEPS with `r unique(l4$Endpoint488)` Robust Z Scores less than -3 or greater than 3.
-
-  
-```{r, echo=FALSE}
-setkey(DT, H3MedNormRobustZ)
-print(DT[DT$H3MedNormRobustZ >=3| DT$H3MedNormRobustZ <=-3, list(Ligand,ECMp,H3MedNormRobustZ)],nrows = Inf)
 
 ```
 
+
+```{r 488_response, fig.width=8, fig.height=4, echo=FALSE}
+
+DT <- l4F[l4F$ReplicateCount > 5]
+p <- ggplot(DT, aes(x = reorder(Ligand, H3MedNormRobustZ, FUN=median), y = H3MedNormRobustZ))+geom_boxplot()+
+  ggtitle(paste("\n\nMEP H3 Robust Z Scores by Ligand"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+p <- ggplot(DT, aes(x = reorder(ECMpAnnotID, H3MedNormRobustZ, FUN=median), y = H3MedNormRobustZ))+geom_boxplot()+
+  ggtitle(paste("\n\nMEP H3 Robust Z Scores by ECM Protein"))+
+  xlab("")+ylab("")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
+suppressWarnings(print(p))
+
+```
 
 \newpage
 
@@ -363,7 +383,7 @@ The loess model of a MEMA is the mean value of a weighted version of each spot's
 
 A MEMA's QA score is derived from the loess model of the control-well-normalized values by calculating the proportion of spots in low signal regions(LSR). A threshold for classifying spots as LSR is based on the median of each plate's control well. To have higher scores reflect increasing quality, the MEMA QA score is defined as the proportion of non-LSR spots to total spots. This value will be 1 for MEMAs with no low signal regions and approach 0 as the number of LSR spots increases.
 
-Below are plots showing data from well A02 from plate LI8X00101 from LINCs staining set 1 (DAPI, phalloidin, CellMask and MitoTracker). The LSR spots are those to the left of the blue vertical line at the threshold value of `r lthresh ` in the histogram. 
+Below are plots showing data from well B01 from plate LI8X00110 from LINCs staining set 2. The LSR spots are those to the left of the blue vertical line at the threshold value of `r lthresh ` in the histogram. 
 
 
 ```{r Loess_Model_explanation , echo=FALSE, fig.width=2.5,fig.height=4}
@@ -386,7 +406,7 @@ p <- ggplot(DT, aes(x=ArrayColumn, y=ArrayRow,colour=LoessSCC))+
   geom_point(size=1.8)+
   scale_y_reverse()+   scale_x_continuous(breaks= c(min(DT$ArrayColumn),round(mean(c(min(DT$ArrayColumn),max(DT$ArrayColumn)))),max(DT$ArrayColumn)))+
   scale_colour_gradient(low = "white", high = "red")+
-  guides(colour = guide_legend("Spot Cell\nCount", keywidth = .5, keyheight = .5))+
+  guides(colour = guide_legend("Normalized \nSpot Cell \nCount", keywidth = .5, keyheight = .5))+
   ggtitle(paste("\n\n","Loess Model of Spot Cell Count \nfor",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+
   xlab("")+ylab("")+theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1),plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
 suppressWarnings(print(p))
@@ -397,7 +417,7 @@ suppressWarnings(print(p))
   p <- ggplot(DT, aes(x=LoessSCC))+
   geom_histogram(binwidth=.02)+
   geom_vline(xintercept=lthresh, colour="blue")+
-  geom_text(data=wellScores, aes(label=paste0("QA\n",QAScore)), x = .9, y = 30, size = rel(7), colour="red")+
+  geom_text(data=wellScores, aes(label=paste0("QA\n",QAScore)), x = .9, y = 30, size = rel(5), colour="red")+
   ggtitle(paste("\n\n","Loess Model of Spot Cell Count \nfor",unique(DT$CellLine), "cells in plate",unique(DT$Barcode)))+xlab("Spot Cell Count")+
   theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(.5)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(.5)),legend.text=element_text(size = rel(.3)),legend.title=element_text(size = rel(.3)))
 suppressWarnings(print(p))
@@ -411,7 +431,7 @@ suppressWarnings(print(p))
 ##Stain Pseudoimages
 The pseudoimages of each well's raw signals are shown in the plots below. Wells that could not be sucessfully imaged due to focus issues are missing from the pseudoimages.
 
-```{r Pseudoimages_all_stains, echo=FALSE, fig.width=3.7,fig.height=4}
+```{r Pseudoimages_all_stains, echo=FALSE, fig.width=3.7,fig.height=4, eval=TRUE}
 
 for (barcode in barcodes){
   DT <-l3[l3$Barcode==barcode,]
@@ -434,6 +454,44 @@ for (barcode in barcodes){
 }
 
 ```
+
+\newpage
+
+##Extreme EdU Proliferation MEPs
+
+```{r EdUMeps,echo=FALSE, fig.width=8, fig.height=5, eval=TRUE}
+DT <- l4F[l4F$EdUPositiveProportion > 0 & l4F$ReplicateCount > 5]
+setkey(DT, EdUPositiveProportion)
+kable(DT[DT$EdUPositiveProportion >= 0.05, list(Ligand,ECMp,EdUPositiveProportion)], digits=2)
+
+```
+
+\newpage
+
+##Extreme Spot Cell Count MEPs
+
+```{r SCCMeps,echo=FALSE, fig.width=8, fig.height=5, eval=TRUE}
+setkey(l4F, SpotCellCountMedNormRobustZ)
+kable(l4F[l4F$SpotCellCountMedNormRobustZ >=2| 
+            l4F$SpotCellCountMedNormRobustZ <=-2, list(Ligand,ECMp,SpotCellCountMedNormRobustZ, SpotCellCount)],digits = 2)
+```
+
+
+
+\newpage
+
+##Extreme H3 MEPs
+The following lists are the MEPs with `r unique(l4$Endpoint488)` robust Z scores less than -3 or greater than 3.
+
+  
+```{r, echo=FALSE}
+DT <- l4F[l4F$ReplicateCount > 5]
+setkey(DT, H3MedNormRobustZ)
+kable(DT[DT$H3MedNormRobustZ >=3| DT$H3MedNormRobustZ <=-3, list(Ligand,ECMp,H3MedNormRobustZ)],digits = 2)
+
+```
+
+
 
 \newpage
 

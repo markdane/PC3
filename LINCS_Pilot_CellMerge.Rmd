@@ -170,6 +170,62 @@ The intensity values are normalized at each spot so that spot-level variations c
 
 ```{r, echo=FALSE, message=FALSE, warnings=FALSE}
 
+# positionParms <- function (DT, densityRadius = 160, outerThresh = 0.2, wedges = 18, 
+#     sparseThresh = 0.8) 
+# {
+#   browser()
+#     lDT <- copy(DT)
+#     lDT <- lDT[, `:=`(XLocal, X - median(X)), by = "Barcode,Well,Spot"]
+#     lDT <- lDT[, `:=`(YLocal, Y - median(Y)), by = "Barcode,Well,Spot"]
+#     lDT <- lDT[, `:=`(RadialPosition, sqrt(XLocal^2 + YLocal^2))]
+#     lDT <- lDT[, `:=`(Theta, calcTheta(XLocal, YLocal))]
+#     lDT <- lDT[, `:=`(Density, spotCellDensities(.SD, radius = densityRadius) * 
+#         10000), by = "Barcode,Well,Spot"]
+#     lDT <- lDT[, `:=`(Sparse, as.logical(Density < sparseThresh))]
+#     wedgeAngs <- 360/wedges
+#     lDT <- lDT[, `:=`(Wedge, ceiling(Theta/wedgeAngs))]
+#     lDT <- lDT[, `:=`(OuterCell, labelOuterCells(RadialPosition, 
+#         thresh = outerThresh)), by = "Barcode,Well,Spot"]
+#     denseOuterDT <- lDT[!lDT$Sparse & lDT$OuterCell]
+#     denseOuterDT <- denseOuterDT[, `:=`(Perimeter, findPerimeterCell(.SD)), 
+#         by = "Barcode,Well,Spot,Wedge"]
+#     setkey(lDT, Barcode, Well, Spot, ObjectID)
+#     setkey(denseOuterDT, Barcode, Well, Spot, ObjectID)
+#     lDT <- denseOuterDT[, list(Barcode, Well, Spot, ObjectID, 
+#         Perimeter)][lDT]
+#     lDT$Perimeter[is.na(lDT$Perimeter)] <- FALSE
+#     return(lDT[, list(Barcode, Well, Spot, ObjectID, XLocal, 
+#         YLocal, RadialPosition, Theta, Wedge, Density, Sparse, 
+#         OuterCell, Perimeter)])
+# }
+# 
+# calcTheta <- function(x,y) {
+#   z <- x + 1i * y
+#   res <- 90 - Arg(z) / pi * 180
+#   res %% 360
+# }
+# 
+# #\code{findPerimeterCell} Determine the perimeter cell in wedge
+# #
+# # @param x A datatable or dataframe with a RadialPosition column
+# # @return A logical vector the length of x with a TRUE value for the Perimeter cell
+# #
+# #
+# findPerimeterCell <- function(x){
+#   if(!nrow(x)==0){
+#     perimeterLogicals <- vector(length=nrow(x))
+#     perimeterLogicals[which.max(x$RadialPosition)] <- TRUE
+#   }
+#   return(perimeterLogicals)
+# }
+# 
+# labelOuterCells <- function(x, thresh=.75){
+#   outerLogicals <- NULL
+#   if(!length(x)==0){
+#     outerLogicals <- x>quantile(x,probs = thresh, na.rm=TRUE)
+#   }
+#   return(outerLogicals)
+# }
 
 #Add the local cartesian and polar coordinates, Wedge, Density and classifications for Sparse, OuterCell and Perimeter
 setkey(cDT,Barcode,Well,Spot,ObjectID)
@@ -235,8 +291,8 @@ if (ss == "SS1") {
   cDTLevel2 <- cDT[,c(coreMetadataColumns, coreLevel2DataColumns,"EdUPositive"), with=FALSE]
   
 }
-write.table(cDTLevel1, paste0(ss,"/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level1.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
-write.table(cDTLevel2, paste0(ss,"/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level2.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(format(cDTLevel1, digits=4), paste0(ss,"/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level1.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(format(cDTLevel2, digits=4), paste0(ss,"/Annotated Data/",unique(cDT$CellLine),"_",ss,"_","Level2.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 ```
 
@@ -266,6 +322,9 @@ data.table::setkey(cv,CVWell,CVECMpAnnotID, CVBarcode)
 data.table::setkey(slDT,Well,ECMpAnnotID,Barcode)
 slDT <- slDT[cv]
 
+#Add a count of replicates
+slDT <- slDT[,ReplicateCount := .N,by="LigandAnnotID,ECMpAnnotID"]
+
 #Add well level QA Scores
 lthresh <- 0.6
   slDT <- slDT[,QAScore := calcQAScore(.SD,threshold=lthresh,maxNrSpot = max(cDT$ArrayRow)*max(cDT$ArrayColumn),value="LoessSCC"),by="Barcode,Well"]
@@ -274,7 +333,7 @@ lthresh <- 0.6
 
 ```{r, echo=FALSE, eval=TRUE}
   
-write.table(slDT, paste0(ss,"/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level3.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(format(slDT, digits = 4), paste0(ss,"/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level3.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 ```
 
@@ -289,13 +348,13 @@ The spot level data is median summarized to the replicate level is stored as Lev
   mepDT<-mepKeep[,lapply(.SD,numericMedian),keyby="LigandAnnotID,ECMpAnnotID"]
   
   #Merge back in the replicate metadata
-  mDT <- slDT[,list(Well,CellLine,Ligand,Endpoint488,Endpoint555,Endpoint647,EndpointDAPI,ECMp),keyby="LigandAnnotID,ECMpAnnotID"]
+  mDT <- slDT[,list(Well,CellLine,Ligand,Endpoint488,Endpoint555,Endpoint647,EndpointDAPI,ReplicateCount,ECMp),keyby="LigandAnnotID,ECMpAnnotID"]
   mepDT <- mDT[mepDT, mult="first"]
   
 ```
 
 ```{r, echo=FALSE, eval=TRUE}
   
-write.table(mepDT, paste0(ss,"/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level4.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
+write.table(format(mepDT, digits = 4), paste0(ss,"/Annotated Data/",unique(slDT$CellLine),"_",ss,"_","Level4.txt"), sep = "\t",row.names = FALSE, quote=FALSE)
 
 ```
