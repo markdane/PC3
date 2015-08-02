@@ -2,7 +2,7 @@
 output: pdf_document
 ---
 ```{r, echo=FALSE}
-#Author: Mark Dane, copyright 2015
+#Author: Mark Dane, copyright 8/2015
 
 calcGroupRatios <- function(x,group,signal){
   #browser()

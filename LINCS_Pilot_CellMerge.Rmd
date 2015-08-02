@@ -6,6 +6,7 @@ output: pdf_document
 ---
 
 ```{r setup, echo=FALSE, message=FALSE}
+#Author: Mark Dane, copyright 8/2015
 library("limma")#read GAL file and strsplit2
 library("MEMA")#merge, annotate and normalize functions
 library("data.table")#fast file reads, data merges and subsetting
@@ -67,7 +68,6 @@ cellDataFiles <- dir(paste0(ss,"/Raw Data"),full.names = TRUE)
 splits <- strsplit2(strsplit2(cellDataFiles,split = "_")[,1],"/")
 barcodes <- unique(splits[,ncol(splits)])
 expDTList <- mclapply(barcodes, function(barcode){
-  #browser()
   plateDataFiles <- grep(barcode,cellDataFiles,value = TRUE)
   wells <- unique(strsplit2(split = "_",plateDataFiles)[,2])
   wellDataList <- lapply(wells,function(well){
@@ -119,7 +119,6 @@ expDTList <- mclapply(barcodes, function(barcode){
   
   #Create the cell data.table with spot metadata for the plate 
   pcDT <- rbindlist(wellDataList, fill = TRUE)
-  #browser()
   #Read the well metadata from a multi-sheet Excel file
   wellMetadata <- data.table(readMetadata(paste0(ss,"/Metadata/",barcode,".xlsx")), key="Well")
   #Create a ligand display name by removing the first underscore and all trailing text
@@ -130,9 +129,6 @@ expDTList <- mclapply(barcodes, function(barcode){
   pcDT <- pcDT[,Barcode := barcode]
   #Count the cells at each spot
   pcDT<-pcDT[,SpotCellCount := length(ObjectID),by="Barcode,Well,Spot"]
-  
-  #Add the loess model of the SpotCellCount on a per well basis
-  pcDT <- pcDT[,LoessSCC := loessModel(.SD,value="SpotCellCount",span=.1), by="Barcode,Well"]
   
   #Add a total DAPI column
   pcDT$TotalIntensityDAPI <- pcDT$Area*pcDT$MeanIntensityDAPI
@@ -146,12 +142,9 @@ expDTList <- mclapply(barcodes, function(barcode){
     
     pcDT <- pcDT[,SpotCellCountMedNorm := normWellsWithinPlate(.SD, value="SpotCellCount", baseECM = ".*",baseGF = "HighSerum"), by="Barcode"]
   }
-  
   pcDT <- pcDT[pcDT$Area >nuclearAreaThresh,]
-  
   return(pcDT)
 })
-
 cDT <- rbindlist(expDTList, fill = TRUE)
 
 ```
@@ -169,63 +162,6 @@ For staining set 2, each cell is classified as EdU+ or EdU-. The threshold for E
 The intensity values are normalized at each spot so that spot-level variations can be analyzed.
 
 ```{r, echo=FALSE, message=FALSE, warnings=FALSE}
-
-# positionParms <- function (DT, densityRadius = 160, outerThresh = 0.2, wedges = 18, 
-#     sparseThresh = 0.8) 
-# {
-#   browser()
-#     lDT <- copy(DT)
-#     lDT <- lDT[, `:=`(XLocal, X - median(X)), by = "Barcode,Well,Spot"]
-#     lDT <- lDT[, `:=`(YLocal, Y - median(Y)), by = "Barcode,Well,Spot"]
-#     lDT <- lDT[, `:=`(RadialPosition, sqrt(XLocal^2 + YLocal^2))]
-#     lDT <- lDT[, `:=`(Theta, calcTheta(XLocal, YLocal))]
-#     lDT <- lDT[, `:=`(Density, spotCellDensities(.SD, radius = densityRadius) * 
-#         10000), by = "Barcode,Well,Spot"]
-#     lDT <- lDT[, `:=`(Sparse, as.logical(Density < sparseThresh))]
-#     wedgeAngs <- 360/wedges
-#     lDT <- lDT[, `:=`(Wedge, ceiling(Theta/wedgeAngs))]
-#     lDT <- lDT[, `:=`(OuterCell, labelOuterCells(RadialPosition, 
-#         thresh = outerThresh)), by = "Barcode,Well,Spot"]
-#     denseOuterDT <- lDT[!lDT$Sparse & lDT$OuterCell]
-#     denseOuterDT <- denseOuterDT[, `:=`(Perimeter, findPerimeterCell(.SD)), 
-#         by = "Barcode,Well,Spot,Wedge"]
-#     setkey(lDT, Barcode, Well, Spot, ObjectID)
-#     setkey(denseOuterDT, Barcode, Well, Spot, ObjectID)
-#     lDT <- denseOuterDT[, list(Barcode, Well, Spot, ObjectID, 
-#         Perimeter)][lDT]
-#     lDT$Perimeter[is.na(lDT$Perimeter)] <- FALSE
-#     return(lDT[, list(Barcode, Well, Spot, ObjectID, XLocal, 
-#         YLocal, RadialPosition, Theta, Wedge, Density, Sparse, 
-#         OuterCell, Perimeter)])
-# }
-# 
-# calcTheta <- function(x,y) {
-#   z <- x + 1i * y
-#   res <- 90 - Arg(z) / pi * 180
-#   res %% 360
-# }
-# 
-# #\code{findPerimeterCell} Determine the perimeter cell in wedge
-# #
-# # @param x A datatable or dataframe with a RadialPosition column
-# # @return A logical vector the length of x with a TRUE value for the Perimeter cell
-# #
-# #
-# findPerimeterCell <- function(x){
-#   if(!nrow(x)==0){
-#     perimeterLogicals <- vector(length=nrow(x))
-#     perimeterLogicals[which.max(x$RadialPosition)] <- TRUE
-#   }
-#   return(perimeterLogicals)
-# }
-# 
-# labelOuterCells <- function(x, thresh=.75){
-#   outerLogicals <- NULL
-#   if(!length(x)==0){
-#     outerLogicals <- x>quantile(x,probs = thresh, na.rm=TRUE)
-#   }
-#   return(outerLogicals)
-# }
 
 #Add the local cartesian and polar coordinates, Wedge, Density and classifications for Sparse, OuterCell and Perimeter
 setkey(cDT,Barcode,Well,Spot,ObjectID)
@@ -251,24 +187,6 @@ endpointNames <- grep("End",colnames(cDT), value=TRUE)
 endpointWL <- regmatches(endpointNames,regexpr("[[:digit:]]{3}|DAPI",endpointNames))
 setnames(cDT,endpointNames,paste0("Endpoint",endpointWL))
 
-#Cell cycle on total DNA under developent and not implemented
-# MclustCluster <- function(x){
-#   #browser()
-#   mod <- densityMclust(x,G=2, modelNames = "E")
-#   return(mod[["classification"]])
-# }
-# 
-# mixtoolCluster <- function(x){
-#   browser()
-#   histinfo <- hist(x,breaks=100)
-#   
-#   mod <- normalmixEM(x, sd.constr=c("a","a"))
-#   return(mod[["classification"]])
-# }
-# 
-# #Set 2N and 4N DNA status
-# cDT <- cDT[,DNA4N := kmeansCluster(Total.Intensity.DAPI), by="Barcode,Well"]
-
 ```
 
 The cell level raw data and metadata is saved as Level 1 data. The plate and spot normalized values and the metadata is saved as Level 2 data.
@@ -277,7 +195,7 @@ The cell level raw data and metadata is saved as Level 1 data. The plate and spo
 #Select the columns and order for saving in the cell-level annotated data file
 coreLevel1DataColumns <- c("X","Y","Z","XLocal","YLocal","RadialPosition","Theta","TotalIntensityDAPI","MeanIntensityDAPI","MeanIntensityAlexa488","MeanIntensityAlexa555","MeanIntensityAlexa647","Area","ElongationFactor")
 
-coreLevel2DataColumns<- c("X","Y","Z","XLocal","YLocal","RadialPosition","Theta","SpotCellCount","LoessSCC","TotalIntensityDAPIMedNorm","MeanIntensityDAPIMedNorm","MeanIntensityAlexa488MedNorm","MeanIntensityAlexa555MedNorm","MeanIntensityAlexa647MedNorm","SpotCellCountMedNorm","MeanIntensityAlexa488SpotNorm","MeanIntensityAlexa555SpotNorm","MeanIntensityAlexa647SpotNorm","Density","Wedge","Sparse","OuterCell","Perimeter")
+coreLevel2DataColumns<- c("X","Y","Z","XLocal","YLocal","RadialPosition","Theta","SpotCellCount","TotalIntensityDAPIMedNorm","MeanIntensityDAPIMedNorm","MeanIntensityAlexa488MedNorm","MeanIntensityAlexa555MedNorm","MeanIntensityAlexa647MedNorm","SpotCellCountMedNorm","MeanIntensityAlexa488SpotNorm","MeanIntensityAlexa555SpotNorm","MeanIntensityAlexa647SpotNorm","Density","Wedge","Sparse","OuterCell","Perimeter")
 
 coreMetadataColumns <- c("Barcode","Well","Spot","ArrayRow","ArrayColumn","Block","Row","Column","ObjectID","LocationMeanIntensityDAPI","LocationMeanIntensityAlexa488","LocationMeanIntensityAlexa555","LocationMeanIntensityAlexa647","CellLine","EndpointDAPI","Endpoint488","Endpoint555","Endpoint647","LigandAnnotID","Ligand","ECMpAnnotID","ECMp","PrintOrder")
 
@@ -300,7 +218,7 @@ The cell-level data is median summarized to the spot level and coefficients of v
 ```{r Level3, echo=FALSE}
 
 #Summarize cell data to spot level (sl) by taking the medians of the parameters
-parameterNames<-grep(pattern="(^Total|^Mean|Elongation|Area|SpotCellCount|EdUPositiveProportion|RadialPosition|Population|Loess|Density|Z|Barcode|^Spot$|^Well$)",x=names(cDT),value=TRUE)
+parameterNames<-grep(pattern="(^Total|^Mean|Elongation|Area|SpotCellCount|EdUPositiveProportion|RadialPosition|Population|Density|Z|Barcode|^Spot$|^Well$)",x=names(cDT),value=TRUE)
 
 #Remove any spot-normalized parameters
 parameterNames <- grep("SpotNorm",parameterNames,value=TRUE,invert=TRUE)
@@ -314,7 +232,7 @@ mDT <- cDT[,metadataNames,keyby="Barcode,Well,Spot", with=FALSE]
 slDT <- mDT[slDT, mult="first"]
 
 #Calculate CVs for each set of replicates in the ScanR data
-cvNames<-grep(pattern="(^Total|^Mean|Elongation|Area|SpotCellCount|EdUPositiveProportion|RadialPosition|Population|Loess|Density|Z|Barcode|^Well$|ECMpAnnotID)",x=colnames(slDT),value=TRUE)
+cvNames<-grep(pattern="(^Total|^Mean|Elongation|Area|SpotCellCount|EdUPositiveProportion|RadialPosition|Population|Density|Z|Barcode|^Well$|ECMpAnnotID)",x=colnames(slDT),value=TRUE)
 cvParameters<-slDT[,cvNames,with=FALSE]
 cv<-cvParameters[,lapply(.SD,CV),by="Barcode,Well,ECMpAnnotID"]
 data.table::setnames(cv,colnames(cv), paste0("CV",colnames(cv)))
@@ -324,6 +242,9 @@ slDT <- slDT[cv]
 
 #Add a count of replicates
 slDT <- slDT[,ReplicateCount := .N,by="LigandAnnotID,ECMpAnnotID"]
+
+#Add the loess model of the SpotCellCount on a per well basis
+  suppressWarnings(slDT <- slDT[,LoessSCC := loessModel(.SD,value="SpotCellCount",span=.1), by="Barcode,Well"])
 
 #Add well level QA Scores
 lthresh <- 0.6
